@@ -1,0 +1,6 @@
+{
+  "name": "CulinaryVault",
+  "description": "Smart recipe repository with dynamic serving-size macro calculations, deterministic web and image/video OCR import, fridge matching, and Model Context Protocol (MCP) server integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

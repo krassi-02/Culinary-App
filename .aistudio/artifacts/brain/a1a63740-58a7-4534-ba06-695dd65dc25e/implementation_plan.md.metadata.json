@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for CulinaryVault: A deterministic recipe repository featuring dynamic macro and calorie calculation by serving proportions, multi-source ingestion (Schema.org JSON-LD web extraction, client-side OCR for images and video frames, and heuristic culinary parsing without cloud AI), fridge inventory matching, missing grocery generation, and a production-grade Model Context Protocol (MCP) server endpoint with interactive tool testing.",
+  "updatedAt":  "2026-10-28T06:22:25.073657990Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
