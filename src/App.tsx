@@ -136,6 +136,21 @@ export default function App() {
     showToast(`Recipe "${recipe.title}" saved!`);
   };
 
+  // Batch Save Recipes (e.g. from browser bookmark export)
+  const handleBatchSaveRecipes = (newRecipes: Recipe[]) => {
+    if (newRecipes.length === 0) return;
+    setRecipes((prev) => [...newRecipes, ...prev]);
+    for (const r of newRecipes) {
+      fetch('/api/recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(r),
+      }).catch(() => {});
+    }
+    showToast(`Imported ${newRecipes.length} bookmark recipes into your collection!`);
+    setActiveTab('recipes');
+  };
+
   // Delete recipe
   const handleDeleteRecipe = (id: string) => {
     setRecipes(recipes.filter((r) => r.id !== id));
@@ -454,6 +469,7 @@ export default function App() {
               setEditingDraft(draft);
               setIsEditorOpen(true);
             }}
+            onBatchRecipesImported={handleBatchSaveRecipes}
           />
         )}
 

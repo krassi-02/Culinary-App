@@ -1,20 +1,53 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Recipe, Ingredient } from '../types';
-import { Globe, Image as ImageIcon, FileText, ArrowRight, Loader2, CheckCircle2, AlertCircle, Sparkles, Upload, Camera, Facebook, ExternalLink, Clipboard, X } from 'lucide-react';
+import {
+  Globe,
+  Image as ImageIcon,
+  FileText,
+  ArrowRight,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Sparkles,
+  Upload,
+  Camera,
+  Facebook,
+  ExternalLink,
+  Clipboard,
+  X,
+  Bookmark,
+  BookmarkCheck,
+  Folder,
+  CheckSquare,
+  Square,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  HelpCircle,
+  RotateCcw,
+  PlusCircle,
+} from 'lucide-react';
 import { runImageOCR, OCRProgress } from '../lib/ocrEngine';
 import { parseRawRecipeText, parseIngredientLine } from '../lib/recipeParser';
 import { calculateRecipeNutrition } from '../lib/nutritionDatabase';
+import {
+  BookmarkItem,
+  BookmarkParseResult,
+  parseAnyBookmarkContent,
+} from '../lib/bookmarkParser';
 
 interface IngestionHubProps {
   onRecipeImported: (recipe: Recipe) => void;
   onOpenRecipeEditor: (draft: Partial<Recipe>) => void;
+  onBatchRecipesImported?: (recipes: Recipe[]) => void;
 }
 
 export const IngestionHub: React.FC<IngestionHubProps> = ({
   onRecipeImported,
   onOpenRecipeEditor,
+  onBatchRecipesImported,
 }) => {
-  const [activeTab, setActiveTab] = useState<'url' | 'image' | 'text'>('url');
+  const [activeTab, setActiveTab] = useState<'url' | 'bookmarks' | 'image' | 'text'>('url');
 
   // URL state
   const [urlInput, setUrlInput] = useState('');
@@ -47,6 +80,208 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
   const [parsedMethod, setParsedMethod] = useState<'deterministic' | 'ai-fallback'>('deterministic');
   const [aiFallbackLoading, setAiFallbackLoading] = useState(false);
   const [aiFallbackError, setAiFallbackError] = useState<string | null>(null);
+
+  // Browser Bookmarks state
+  const [bookmarkResult, setBookmarkResult] = useState<BookmarkParseResult | null>(null);
+  const [bookmarkFileName, setBookmarkFileName] = useState<string>('');
+  const [bookmarkFilterOnlyRecipes, setBookmarkFilterOnlyRecipes] = useState(true);
+  const [bookmarkSearchQuery, setBookmarkSearchQuery] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState<string>('all');
+  const [selectedBookmarkIds, setSelectedBookmarkIds] = useState<Set<string>>(new Set());
+  const [importedBookmarkUrls, setImportedBookmarkUrls] = useState<Set<string>>(new Set());
+  const [bookmarkRawInput, setBookmarkRawInput] = useState('');
+  const [showPastedBookmarksInput, setShowPastedBookmarksInput] = useState(false);
+  const [showExportGuide, setShowExportGuide] = useState(false);
+  const [bookmarkStatusMessage, setBookmarkStatusMessage] = useState<string | null>(null);
+
+  // Sample browser bookmark export for 1-click test
+  const SAMPLE_BOOKMARK_EXPORT = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3 ADD_DATE="1698000000">Bookmarks bar</H3>
+    <DL><p>
+        <DT><H3 ADD_DATE="1698000000">Healthy Dinner Recipes</H3>
+        <DL><p>
+            <DT><A HREF="https://www.allrecipes.com/recipe/23891/pasta-salad/" ADD_DATE="1698000000">Classic Italian Zesty Pasta Salad - Allrecipes</A>
+            <DT><A HREF="https://www.instagram.com/p/De8DbcQOpS-/" ADD_DATE="1698000000">Cottage Cheese Chocolate Chip Cookies Reel (@mattwest)</A>
+            <DT><A HREF="https://www.facebook.com/posts/crispy-garlic-chicken" ADD_DATE="1698000000">Crispy Garlic Herb Roast Chicken - Facebook Post</A>
+            <DT><A HREF="https://pinterest.com/pin/healthy-protein-bowls" ADD_DATE="1698000000">Glazed Salmon & Edamame Grain Bowl - Pinterest Pin</A>
+            <DT><A HREF="https://www.foodnetwork.com/recipes/rachael-ray/lemon-chicken-recipe-1941655" ADD_DATE="1698000000">Skillet Lemon Herb Garlic Chicken - Food Network</A>
+        </DL><p>
+        <DT><H3 ADD_DATE="1698000000">Weekend Baking</H3>
+        <DL><p>
+            <DT><A HREF="https://www.allrecipes.com/recipe/10813/best-chocolate-chip-cookies/" ADD_DATE="1698000000">Chewy Soft Chocolate Chip Cookies</A>
+            <DT><A HREF="https://sallysbakingaddiction.com/easy-homemade-bread/" ADD_DATE="1698000000">Artisan Rustic Crusty Bread Recipe</A>
+        </DL><p>
+        <DT><H3 ADD_DATE="1698000000">Dev & Tech</H3>
+        <DL><p>
+            <DT><A HREF="https://github.com">GitHub Developer Hub</A>
+            <DT><A HREF="https://news.ycombinator.com">Hacker News</A>
+        </DL><p>
+    </DL><p>
+</DL><p>`;
+
+  // Handle uploaded bookmark HTML / JSON file
+  const handleBookmarkFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = parseAnyBookmarkContent(text);
+      setBookmarkResult(parsed);
+      setBookmarkFileName(file.name);
+      const recipeIds = new Set(parsed.items.filter((it) => it.isLikelyRecipe).map((it) => it.id));
+      setSelectedBookmarkIds(recipeIds);
+      setBookmarkStatusMessage(
+        `Loaded ${parsed.totalFound} bookmarks from "${file.name}". Automatically identified ${parsed.recipeCount} recipe links!`
+      );
+    } catch (err: any) {
+      setBookmarkStatusMessage(`Failed to read file: ${err.message}`);
+    }
+  };
+
+  // Handle 1-click sample browser export
+  const handleLoadSampleBookmarks = () => {
+    const parsed = parseAnyBookmarkContent(SAMPLE_BOOKMARK_EXPORT);
+    setBookmarkResult(parsed);
+    setBookmarkFileName('Chrome_Recipes_Bookmarks_Export.html');
+    const recipeIds = new Set(parsed.items.filter((it) => it.isLikelyRecipe).map((it) => it.id));
+    setSelectedBookmarkIds(recipeIds);
+    setBookmarkStatusMessage(
+      `Loaded sample Chrome bookmark export with ${parsed.totalFound} total links and ${parsed.recipeCount} recipes across 2 recipe folders.`
+    );
+  };
+
+  // Handle raw pasted bookmark HTML or URLs
+  const handleParsePastedBookmarks = () => {
+    if (!bookmarkRawInput.trim()) return;
+    const parsed = parseAnyBookmarkContent(bookmarkRawInput);
+    setBookmarkResult(parsed);
+    setBookmarkFileName('Pasted Bookmark Content');
+    const recipeIds = new Set(parsed.items.filter((it) => it.isLikelyRecipe).map((it) => it.id));
+    setSelectedBookmarkIds(recipeIds);
+    setShowPastedBookmarksInput(false);
+    setBookmarkStatusMessage(
+      `Parsed ${parsed.totalFound} bookmarks from pasted content with ${parsed.recipeCount} identified recipes.`
+    );
+  };
+
+  // Filtered bookmark items based on active search, folder, and recipe toggle
+  const filteredBookmarks = useMemo(() => {
+    if (!bookmarkResult) return [];
+    return bookmarkResult.items.filter((item) => {
+      if (bookmarkFilterOnlyRecipes && !item.isLikelyRecipe) return false;
+      if (selectedFolder !== 'all' && !item.folderPath.includes(selectedFolder)) return false;
+      if (bookmarkSearchQuery.trim()) {
+        const q = bookmarkSearchQuery.toLowerCase();
+        const matchTitle = item.title.toLowerCase().includes(q);
+        const matchUrl = item.url.toLowerCase().includes(q);
+        const matchDomain = item.domain.toLowerCase().includes(q);
+        const matchFolder = item.folderPath.some((f) => f.toLowerCase().includes(q));
+        if (!matchTitle && !matchUrl && !matchDomain && !matchFolder) return false;
+      }
+      return true;
+    });
+  }, [bookmarkResult, bookmarkFilterOnlyRecipes, selectedFolder, bookmarkSearchQuery]);
+
+  // Toggle single bookmark selection
+  const toggleBookmarkSelect = (id: string) => {
+    setSelectedBookmarkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Toggle select all filtered bookmarks
+  const toggleSelectAllFiltered = () => {
+    const allFilteredSelected = filteredBookmarks.every((it) => selectedBookmarkIds.has(it.id));
+    setSelectedBookmarkIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filteredBookmarks.forEach((it) => next.delete(it.id));
+      } else {
+        filteredBookmarks.forEach((it) => next.add(it.id));
+      }
+      return next;
+    });
+  };
+
+  // Pick an appetizing preview image for bookmark cards
+  const getImageForBookmark = (bm: BookmarkItem) => {
+    const lower = `${bm.title} ${bm.categorySuggestion || ''}`.toLowerCase();
+    if (lower.includes('salmon') || lower.includes('grain') || lower.includes('bowl')) {
+      return '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg';
+    }
+    if (lower.includes('cookie') || lower.includes('oat') || lower.includes('bake') || lower.includes('bread') || lower.includes('dessert')) {
+      return '/src/assets/images/recipe_protein_oats_1793168926912.jpg';
+    }
+    return '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg';
+  };
+
+  // Batch import selected bookmarks to Recipe Vault
+  const handleImportSelectedBookmarks = () => {
+    if (!bookmarkResult) return;
+    const itemsToImport = bookmarkResult.items.filter((it) => selectedBookmarkIds.has(it.id));
+    if (itemsToImport.length === 0) return;
+
+    const newRecipes: Recipe[] = itemsToImport.map((bm, idx) => {
+      let sourceType: Recipe['sourceType'] = 'bookmark';
+      if (bm.url.includes('instagram.com')) sourceType = 'instagram';
+      else if (bm.url.includes('facebook.com') || bm.url.includes('fb.watch')) sourceType = 'facebook';
+      else if (bm.url.includes('pinterest.com') || bm.url.includes('pin.it')) sourceType = 'pinterest';
+
+      return {
+        id: `rec_bm_${Date.now()}_${idx}`,
+        title: bm.title,
+        description: `Imported from browser bookmark (${bm.domain})${bm.folderPath.length > 0 ? ` in folder "${bm.folderPath.join(' > ')}"` : ''}.`,
+        sourceUrl: bm.url,
+        sourceType,
+        imageUrl: getImageForBookmark(bm),
+        prepTimeMinutes: 10,
+        cookTimeMinutes: 20,
+        standardServings: 2,
+        cuisine: bm.categorySuggestion || 'Home Cooking',
+        difficulty: 'Easy',
+        ingredients: [
+          {
+            id: `ing_bm_${idx}_0`,
+            name: `Original recipe source from ${bm.domain}`,
+            quantity: 1,
+            unit: 'serving',
+            category: 'pantry',
+          },
+        ],
+        instructions: [
+          `Open saved recipe link: ${bm.url}`,
+          `Folder origin: ${bm.folderPath.join(' / ') || 'Bookmarks Bar'}`,
+          `Use "Extract from Web URL" in the Ingestion Hub to parse the full ingredients list and auto-calculated nutritional macros.`,
+        ],
+        nutritionPerServing: {
+          calories: 0,
+          proteinGrams: 0,
+          carbsGrams: 0,
+          fatGrams: 0,
+          fiberGrams: 0,
+        },
+        tags: ['Browser Bookmark', bm.domain, ...(bm.folderPath || [])],
+        createdAt: new Date().toISOString(),
+      };
+    });
+
+    if (onBatchRecipesImported) {
+      onBatchRecipesImported(newRecipes);
+    } else {
+      newRecipes.forEach((r) => onRecipeImported(r));
+    }
+
+    setImportedBookmarkUrls((prev) => new Set([...prev, ...newRecipes.map((r) => r.sourceUrl!)]));
+    setBookmarkStatusMessage(`Successfully imported ${newRecipes.length} bookmark recipes into your collection!`);
+  };
 
   // Helper sample URLs for 1-click test with real Instagram Reel and Facebook examples
   const sampleUrls = [
@@ -332,22 +567,36 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
       </div>
 
       {/* Tab Segmented Controls */}
-      <div className="flex items-center gap-1 p-1 bg-zinc-200/80 rounded-xl max-w-lg">
+      <div className="flex items-center gap-1 p-1 bg-zinc-200/80 rounded-xl max-w-2xl overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab('url')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium rounded-lg transition-all whitespace-nowrap ${
             activeTab === 'url' ? 'bg-white text-zinc-900 shadow-xs font-semibold' : 'text-zinc-600 hover:text-zinc-900'
           }`}
         >
           <Globe className="w-3.5 h-3.5" />
-          <span>Web & Instagram Reel Link</span>
+          <span>Single Link (Web, Reel, FB)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('bookmarks')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium rounded-lg transition-all whitespace-nowrap ${
+            activeTab === 'bookmarks' ? 'bg-white text-zinc-900 shadow-xs font-semibold' : 'text-zinc-600 hover:text-zinc-900'
+          }`}
+        >
+          <Bookmark className="w-3.5 h-3.5 text-amber-600" />
+          <span>Browser Bookmarks Export</span>
+          <span className="text-[9px] uppercase px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded font-bold">
+            HTML
+          </span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('image')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium rounded-lg transition-all whitespace-nowrap ${
             activeTab === 'image' ? 'bg-white text-zinc-900 shadow-xs font-semibold' : 'text-zinc-600 hover:text-zinc-900'
           }`}
         >
@@ -358,7 +607,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('text')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium rounded-lg transition-all whitespace-nowrap ${
             activeTab === 'text' ? 'bg-white text-zinc-900 shadow-xs font-semibold' : 'text-zinc-600 hover:text-zinc-900'
           }`}
         >
@@ -608,7 +857,492 @@ Instructions:
           </div>
         )}
 
-        {/* TAB 2: IMAGE / PIN OCR */}
+        {/* TAB 2: BROWSER BOOKMARKS EXPORT (CHROME, SAFARI, FIREFOX, EDGE) */}
+        {activeTab === 'bookmarks' && (
+          <div className="space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-zinc-900">
+                    Import Links from Browser Bookmarks Export
+                  </h3>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-md">
+                    Universal HTML / JSON
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Export your bookmarks file from Chrome, Safari, Firefox, Edge, or Brave. We automatically parse folders, detect culinary recipe links, and categorize them for batch import.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowExportGuide(!showExportGuide)}
+                className="inline-flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-900 bg-zinc-100 hover:bg-zinc-200/80 px-2.5 py-1.5 rounded-lg font-medium transition-colors shrink-0 self-start sm:self-auto"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-amber-600" />
+                <span>How to export bookmarks</span>
+                {showExportGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            {/* Quick Export Guide Accordion */}
+            {showExportGuide && (
+              <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-zinc-700 space-y-2.5 animate-in fade-in duration-150">
+                <h4 className="font-bold text-amber-950 flex items-center gap-1.5">
+                  <Bookmark className="w-4 h-4 text-amber-700" />
+                  <span>How to export your bookmarks in 10 seconds:</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+                  <div className="p-2.5 bg-white rounded-lg border border-amber-200/80 shadow-2xs">
+                    <p className="font-bold text-zinc-900 mb-1">Google Chrome / Brave</p>
+                    <p className="text-[11px] text-zinc-600 leading-relaxed">
+                      Press <kbd className="px-1 py-0.5 bg-zinc-100 border rounded font-mono text-[10px]">Ctrl+Shift+O</kbd> (<kbd className="px-1 py-0.5 bg-zinc-100 border rounded font-mono text-[10px]">⌘+⌥+B</kbd>) → Click <strong className="text-zinc-800">⋮</strong> (top right) → <strong className="text-zinc-800">Export bookmarks</strong>.
+                    </p>
+                  </div>
+                  <div className="p-2.5 bg-white rounded-lg border border-amber-200/80 shadow-2xs">
+                    <p className="font-bold text-zinc-900 mb-1">Apple Safari</p>
+                    <p className="text-[11px] text-zinc-600 leading-relaxed">
+                      In top Mac menu, click <strong className="text-zinc-800">File</strong> → <strong className="text-zinc-800">Export Bookmarks...</strong> → Save as <code className="text-[10px] bg-zinc-100 px-1 py-0.5 rounded font-mono">Safari Bookmarks.html</code>.
+                    </p>
+                  </div>
+                  <div className="p-2.5 bg-white rounded-lg border border-amber-200/80 shadow-2xs">
+                    <p className="font-bold text-zinc-900 mb-1">Mozilla Firefox</p>
+                    <p className="text-[11px] text-zinc-600 leading-relaxed">
+                      Press <kbd className="px-1 py-0.5 bg-zinc-100 border rounded font-mono text-[10px]">Ctrl+Shift+O</kbd> → Click <strong className="text-zinc-800">Import and Backup</strong> → <strong className="text-zinc-800">Export Bookmarks to HTML...</strong>.
+                    </p>
+                  </div>
+                  <div className="p-2.5 bg-white rounded-lg border border-amber-200/80 shadow-2xs">
+                    <p className="font-bold text-zinc-900 mb-1">Microsoft Edge</p>
+                    <p className="text-[11px] text-zinc-600 leading-relaxed">
+                      Press <kbd className="px-1 py-0.5 bg-zinc-100 border rounded font-mono text-[10px]">Ctrl+Shift+O</kbd> → Click <strong className="text-zinc-800">...</strong> in the Favorites flyout → <strong className="text-zinc-800">Export favorites</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Upload Zone & Quick Sample Button */}
+            {!bookmarkResult ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* File Dropzone */}
+                <label className="border-2 border-dashed border-zinc-300 hover:border-amber-400 hover:bg-amber-50/20 rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-zinc-50/50">
+                  <input
+                    type="file"
+                    accept=".html,.htm,.json,.txt"
+                    onChange={handleBookmarkFileUpload}
+                    className="hidden"
+                  />
+                  <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mb-3 shadow-2xs">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-bold text-zinc-800">
+                    Upload Browser Bookmarks Export File
+                  </span>
+                  <span className="text-[11px] text-zinc-500 mt-1">
+                    Supports <code className="bg-zinc-100 px-1 py-0.5 rounded font-mono">bookmarks.html</code>, <code className="bg-zinc-100 px-1 py-0.5 rounded font-mono">.json</code>, or <code className="bg-zinc-100 px-1 py-0.5 rounded font-mono">.txt</code>
+                  </span>
+                </label>
+
+                {/* Quick Test & Paste Options */}
+                <div className="border border-zinc-200 rounded-xl p-5 bg-zinc-50/60 flex flex-col justify-between space-y-4">
+                  <div className="space-y-2">
+                    <span className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Instant 1-Click Demo</span>
+                    </span>
+                    <p className="text-xs text-zinc-600 leading-relaxed">
+                      Don't have your browser export handy? Test immediately with a sample export containing realistic recipe folders (<em className="text-zinc-800">Healthy Dinner Recipes, Weekend Baking</em>), Instagram Reel links, and Facebook cooking posts.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadSampleBookmarks}
+                      className="flex-1 px-4 py-2 text-xs font-semibold text-white bg-amber-700 hover:bg-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Load Sample Bookmarks</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPastedBookmarksInput(!showPastedBookmarksInput)}
+                      className="px-3.5 py-2 text-xs font-medium text-zinc-700 bg-white hover:bg-zinc-100 border border-zinc-300 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-zinc-500" />
+                      <span>{showPastedBookmarksInput ? 'Hide Paste Box' : 'Paste HTML / Links'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* File Loaded Header with Reset Button */
+              <div className="flex items-center justify-between p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center shadow-xs">
+                    <BookmarkCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-zinc-900">{bookmarkFileName || 'Browser Bookmarks File'}</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        {bookmarkResult.recipeCount} Recipes Identified
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-600">
+                      Total links: {bookmarkResult.totalFound} · Recipe folders: {bookmarkResult.folders.length}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer px-3 py-1.5 text-xs font-medium text-zinc-700 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-lg shadow-2xs flex items-center gap-1.5 transition-colors">
+                    <input
+                      type="file"
+                      accept=".html,.htm,.json,.txt"
+                      onChange={handleBookmarkFileUpload}
+                      className="hidden"
+                    />
+                    <Upload className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Change File</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBookmarkResult(null);
+                      setBookmarkFileName('');
+                      setSelectedBookmarkIds(new Set());
+                      setBookmarkStatusMessage(null);
+                    }}
+                    className="p-1.5 text-zinc-400 hover:text-zinc-600 rounded-md"
+                    title="Clear bookmarks"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Paste HTML Box if toggled */}
+            {showPastedBookmarksInput && !bookmarkResult && (
+              <div className="p-4 bg-zinc-50 border border-zinc-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-zinc-800">
+                    Paste raw Bookmarks HTML, JSON, or list of URLs:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const clip = await navigator.clipboard.readText();
+                        if (clip) setBookmarkRawInput(clip);
+                      } catch (e) {}
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 hover:underline"
+                  >
+                    <Clipboard className="w-3 h-3" />
+                    <span>Paste from Clipboard</span>
+                  </button>
+                </div>
+                <textarea
+                  rows={4}
+                  value={bookmarkRawInput}
+                  onChange={(e) => setBookmarkRawInput(e.target.value)}
+                  placeholder={`<DT><H3>My Recipes</H3>\n<DL><p>\n  <DT><A HREF="https://www.allrecipes.com/recipe/23891/pasta-salad/">Pasta Salad</A>\n  <DT><A HREF="https://instagram.com/p/...">Instagram Cookie Reel</A>\n</DL><p>`}
+                  className="w-full p-2.5 text-xs font-mono border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={!bookmarkRawInput.trim()}
+                    onClick={handleParsePastedBookmarks}
+                    className="px-4 py-1.5 text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 rounded-lg transition-colors shadow-xs"
+                  >
+                    Parse Pasted Bookmarks
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Status Message Banner */}
+            {bookmarkStatusMessage && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>{bookmarkStatusMessage}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBookmarkStatusMessage(null)}
+                  className="text-emerald-700 hover:text-emerald-900"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Parsed Bookmarks Review & Batch Import Table */}
+            {bookmarkResult && (
+              <div className="space-y-4 pt-2">
+                {/* Filter and Search Bar */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Recipes vs All toggle */}
+                    <div className="inline-flex p-0.5 bg-zinc-200/80 rounded-lg text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setBookmarkFilterOnlyRecipes(true)}
+                        className={`px-3 py-1 rounded-md font-medium transition-all ${
+                          bookmarkFilterOnlyRecipes
+                            ? 'bg-white text-zinc-900 shadow-2xs font-semibold'
+                            : 'text-zinc-600 hover:text-zinc-900'
+                        }`}
+                      >
+                        Likely Recipes ({bookmarkResult.recipeCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBookmarkFilterOnlyRecipes(false)}
+                        className={`px-3 py-1 rounded-md font-medium transition-all ${
+                          !bookmarkFilterOnlyRecipes
+                            ? 'bg-white text-zinc-900 shadow-2xs font-semibold'
+                            : 'text-zinc-600 hover:text-zinc-900'
+                        }`}
+                      >
+                        All Bookmarks ({bookmarkResult.totalFound})
+                      </button>
+                    </div>
+
+                    {/* Folder Filter if folders exist */}
+                    {bookmarkResult.folders.length > 0 && (
+                      <div className="flex items-center gap-1.5 text-xs text-zinc-600">
+                        <Folder className="w-3.5 h-3.5 text-zinc-400" />
+                        <select
+                          value={selectedFolder}
+                          onChange={(e) => setSelectedFolder(e.target.value)}
+                          className="px-2.5 py-1 text-xs border border-zinc-300 rounded-md bg-white focus:outline-none"
+                        >
+                          <option value="all">All Folders ({bookmarkResult.folders.length})</option>
+                          {bookmarkResult.folders.map((f, idx) => (
+                            <option key={idx} value={f}>
+                              📁 {f}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Search box */}
+                  <div className="relative min-w-[220px]">
+                    <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={bookmarkSearchQuery}
+                      onChange={(e) => setBookmarkSearchQuery(e.target.value)}
+                      placeholder="Search title, URL, or folder..."
+                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Selection & Batch Action Toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                  <div className="flex items-center gap-3 text-xs text-zinc-600">
+                    <button
+                      type="button"
+                      onClick={toggleSelectAllFiltered}
+                      className="flex items-center gap-1.5 font-medium hover:text-zinc-900"
+                    >
+                      {filteredBookmarks.length > 0 &&
+                      filteredBookmarks.every((it) => selectedBookmarkIds.has(it.id)) ? (
+                        <CheckSquare className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-zinc-400" />
+                      )}
+                      <span>
+                        {filteredBookmarks.every((it) => selectedBookmarkIds.has(it.id))
+                          ? 'Deselect All'
+                          : `Select All Filtered (${filteredBookmarks.length})`}
+                      </span>
+                    </button>
+
+                    <span className="text-zinc-300">|</span>
+                    <span className="font-semibold text-zinc-800">
+                      {selectedBookmarkIds.size} of {bookmarkResult.items.length} selected
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={selectedBookmarkIds.size === 0}
+                    onClick={handleImportSelectedBookmarks}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2 shadow-xs"
+                  >
+                    <BookmarkCheck className="w-4 h-4" />
+                    <span>
+                      Import {selectedBookmarkIds.size} Selected to Recipe Vault
+                    </span>
+                  </button>
+                </div>
+
+                {/* Bookmarks List */}
+                <div className="border border-zinc-200 rounded-xl overflow-hidden divide-y divide-zinc-200 max-h-[460px] overflow-y-auto bg-white">
+                  {filteredBookmarks.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-zinc-500">
+                      No bookmarks match the current filter or search query.
+                    </div>
+                  ) : (
+                    filteredBookmarks.map((item) => {
+                      const isSelected = selectedBookmarkIds.has(item.id);
+                      const isAlreadyImported = importedBookmarkUrls.has(item.url);
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-3.5 flex items-center justify-between gap-4 transition-colors ${
+                            isSelected ? 'bg-amber-50/40' : 'hover:bg-zinc-50'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3 min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleBookmarkSelect(item.id)}
+                              className="mt-0.5 text-zinc-400 hover:text-zinc-600 shrink-0"
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-emerald-600" />
+                              ) : (
+                                <Square className="w-4 h-4 text-zinc-300" />
+                              )}
+                            </button>
+
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <a
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-bold text-zinc-900 hover:text-emerald-700 hover:underline truncate max-w-md flex items-center gap-1"
+                                >
+                                  <span className="truncate">{item.title}</span>
+                                  <ExternalLink className="w-3 h-3 text-zinc-400 shrink-0" />
+                                </a>
+
+                                {item.isLikelyRecipe && (
+                                  <span className="text-[10px] font-semibold px-2 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full shrink-0">
+                                    Recipe
+                                  </span>
+                                )}
+
+                                {isAlreadyImported && (
+                                  <span className="text-[10px] font-semibold px-2 py-0.2 bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-full shrink-0 flex items-center gap-1">
+                                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                                    <span>In Vault</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                <span className="font-mono text-zinc-600 bg-zinc-100 px-1.5 py-0.2 rounded">
+                                  {item.domain}
+                                </span>
+
+                                {item.folderPath.length > 0 && (
+                                  <span className="flex items-center gap-1 text-zinc-600">
+                                    <Folder className="w-3 h-3 text-zinc-400 shrink-0" />
+                                    <span>{item.folderPath.join(' / ')}</span>
+                                  </span>
+                                )}
+
+                                {item.categorySuggestion && (
+                                  <span className="text-zinc-400">· {item.categorySuggestion}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Item Actions */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUrlInput(item.url);
+                                setActiveTab('url');
+                                handleScrapeUrl(item.url);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors flex items-center gap-1 shadow-2xs"
+                              title="Extract full recipe, ingredients, and nutrition macros via AI"
+                            >
+                              <Sparkles className="w-3 h-3 text-emerald-600" />
+                              <span className="hidden sm:inline">Scrape & AI Macros</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const singleRec: Recipe = {
+                                  id: `rec_bm_${Date.now()}`,
+                                  title: item.title,
+                                  description: `Imported from browser bookmark (${item.domain}).`,
+                                  sourceUrl: item.url,
+                                  sourceType: item.url.includes('instagram.com')
+                                    ? 'instagram'
+                                    : item.url.includes('facebook.com')
+                                    ? 'facebook'
+                                    : item.url.includes('pinterest.com')
+                                    ? 'pinterest'
+                                    : 'bookmark',
+                                  imageUrl: getImageForBookmark(item),
+                                  prepTimeMinutes: 10,
+                                  cookTimeMinutes: 20,
+                                  standardServings: 2,
+                                  cuisine: item.categorySuggestion || 'Home Cooking',
+                                  difficulty: 'Easy',
+                                  ingredients: [
+                                    {
+                                      id: `ing_bm_s_${Date.now()}`,
+                                      name: `Original recipe from ${item.domain}`,
+                                      quantity: 1,
+                                      unit: 'serving',
+                                      category: 'pantry',
+                                    },
+                                  ],
+                                  instructions: [`Visit saved recipe link: ${item.url}`],
+                                  nutritionPerServing: {
+                                    calories: 0,
+                                    proteinGrams: 0,
+                                    carbsGrams: 0,
+                                    fatGrams: 0,
+                                    fiberGrams: 0,
+                                  },
+                                  tags: ['Browser Bookmark', item.domain, ...(item.folderPath || [])],
+                                  createdAt: new Date().toISOString(),
+                                };
+                                onRecipeImported(singleRec);
+                                setImportedBookmarkUrls((prev) => new Set([...prev, item.url]));
+                                setBookmarkStatusMessage(`Imported "${item.title}" into your recipe collection!`);
+                              }}
+                              className="px-2 py-1 text-[11px] font-medium text-zinc-700 bg-white hover:bg-zinc-100 border border-zinc-200 rounded-md transition-colors shadow-2xs"
+                              title="Save bookmark card to vault"
+                            >
+                              <PlusCircle className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: IMAGE / PIN OCR */}
         {activeTab === 'image' && (
           <div className="space-y-5">
             <div>
