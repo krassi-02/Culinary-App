@@ -4,6 +4,9 @@ import * as cheerio from 'cheerio';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
+import { registerDataRoutes } from './server/dataRoutes';
+import { MCP_TOOLS, executeMcpTool } from './server/mcpTools';
+import * as store from './server/store';
 
 // Ensure HMR is disabled in the dev server environment to prevent WebSocket connection failures in iFrames
 process.env.DISABLE_HMR = 'true';
@@ -15,6 +18,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '15mb' }));
+registerDataRoutes(app);
 
 // Initialize Gemini Client for language and non-standard recipe fallback
 const ai = new GoogleGenAI({
@@ -107,177 +111,6 @@ ${textOrHtml.slice(0, 10000)}
   }
 }
 
-
-// -------------------------------------------------------------
-// In-Memory Data Store (Initialized with standard delicious set)
-// -------------------------------------------------------------
-let recipesStore: any[] = [
-  {
-    id: 'rec_salmon_bowl_01',
-    title: 'Glazed Salmon & Edamame Grain Bowl',
-    description: 'Crispy pan-seared salmon fillet over warm brown rice with creamy avocado, crisp cucumber ribbons, steamed edamame, and toasted sesame.',
-    sourceUrl: 'https://pinterest.com/pin/salmon-grain-bowl-macro-recipe',
-    sourceType: 'pinterest',
-    imageUrl: '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
-    prepTimeMinutes: 15,
-    cookTimeMinutes: 12,
-    standardServings: 2,
-    cuisine: 'Japanese Fusion',
-    difficulty: 'Easy',
-    tags: ['High Protein', 'Omega 3', 'Gluten Free', 'Meal Prep'],
-    createdAt: '2026-10-27T12:00:00Z',
-    nutritionPerServing: {
-      calories: 540,
-      proteinGrams: 38,
-      carbsGrams: 42,
-      fatGrams: 22,
-      fiberGrams: 7,
-    },
-    ingredients: [
-      { id: 'ing_1', name: 'salmon', quantity: 300, unit: 'g', category: 'protein' },
-      { id: 'ing_2', name: 'brown rice', quantity: 240, unit: 'g', category: 'pantry' },
-      { id: 'ing_3', name: 'edamame', quantity: 120, unit: 'g', category: 'produce' },
-      { id: 'ing_4', name: 'avocado', quantity: 1, unit: 'piece', category: 'produce' },
-      { id: 'ing_5', name: 'cucumber', quantity: 0.5, unit: 'piece', category: 'produce' },
-      { id: 'ing_6', name: 'olive oil', quantity: 1, unit: 'tbsp', category: 'pantry' },
-    ],
-    instructions: [
-      'Pat salmon fillets dry with paper towels and season with coarse sea salt and cracked pepper.',
-      'Heat olive oil in a non-stick skillet over medium-high heat. Sear salmon skin-side down for 4 minutes until golden and crisp, then flip and cook for 3 minutes.',
-      'Divide warm steamed brown rice into bowls.',
-      'Arrange cucumber ribbons, steamed edamame, and sliced avocado next to the rice.',
-      'Nestle seared salmon on top and garnish with toasted sesame seeds and fresh herbs.',
-    ],
-  },
-  {
-    id: 'rec_med_pasta_02',
-    title: 'Mediterranean Lemon Herb Chicken Penne',
-    description: 'Tender pan-seared herb chicken tossed with al dente penne pasta, wilted baby spinach, sun-dried tomatoes, and shaved parmesan.',
-    sourceUrl: 'https://instagram.com/p/mediterranean-chicken-penne',
-    sourceType: 'instagram',
-    imageUrl: '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
-    prepTimeMinutes: 10,
-    cookTimeMinutes: 18,
-    standardServings: 4,
-    cuisine: 'Mediterranean',
-    difficulty: 'Easy',
-    tags: ['Balanced Macros', 'Quick Dinner', 'High Protein'],
-    createdAt: '2026-10-27T14:30:00Z',
-    nutritionPerServing: {
-      calories: 490,
-      proteinGrams: 42,
-      carbsGrams: 51,
-      fatGrams: 14,
-      fiberGrams: 5,
-    },
-    ingredients: [
-      { id: 'ing_7', name: 'chicken breast', quantity: 450, unit: 'g', category: 'protein' },
-      { id: 'ing_8', name: 'penne pasta', quantity: 300, unit: 'g', category: 'pantry' },
-      { id: 'ing_9', name: 'spinach', quantity: 150, unit: 'g', category: 'produce' },
-      { id: 'ing_10', name: 'tomato', quantity: 100, unit: 'g', category: 'produce' },
-      { id: 'ing_11', name: 'parmesan cheese', quantity: 40, unit: 'g', category: 'dairy' },
-      { id: 'ing_12', name: 'garlic', quantity: 3, unit: 'clove', category: 'produce' },
-      { id: 'ing_13', name: 'olive oil', quantity: 2, unit: 'tbsp', category: 'pantry' },
-    ],
-    instructions: [
-      'Boil penne pasta in well-salted water until al dente; reserve 1/2 cup pasta water before draining.',
-      'Slice chicken breast into cutlets, season with dried oregano, garlic, salt, and pepper.',
-      'Sear chicken in olive oil for 5 minutes per side until internal temperature reaches 165°F (74°C). Rest and slice.',
-      'In the same skillet, sauté minced garlic, sun-dried tomatoes, and baby spinach until wilted.',
-      'Toss drained pasta and sliced chicken with the vegetables, adding a splash of pasta water and finishing with shaved parmesan.',
-    ],
-  },
-  {
-    id: 'rec_protein_oats_03',
-    title: 'Blueberry Almond Butter Protein Oats',
-    description: 'Thick overnight rolled oats soaked in almond milk, folded with Greek yogurt and chia seeds, topped with wild blueberries and warm almond butter.',
-    sourceUrl: 'https://saved-bookmark.com/macro-friendly-overnight-oats',
-    sourceType: 'bookmark',
-    imageUrl: '/src/assets/images/recipe_protein_oats_1793168926912.jpg',
-    prepTimeMinutes: 5,
-    cookTimeMinutes: 0,
-    standardServings: 1,
-    cuisine: 'Breakfast',
-    difficulty: 'Easy',
-    tags: ['Vegetarian', 'High Fiber', 'No Cook', 'Breakfast'],
-    createdAt: '2026-10-27T16:00:00Z',
-    nutritionPerServing: {
-      calories: 420,
-      proteinGrams: 28,
-      carbsGrams: 54,
-      fatGrams: 11,
-      fiberGrams: 9,
-    },
-    ingredients: [
-      { id: 'ing_14', name: 'rolled oats', quantity: 60, unit: 'g', category: 'pantry' },
-      { id: 'ing_15', name: 'greek yogurt', quantity: 150, unit: 'g', category: 'dairy' },
-      { id: 'ing_16', name: 'milk', quantity: 120, unit: 'ml', category: 'dairy' },
-      { id: 'ing_17', name: 'chia seeds', quantity: 1, unit: 'tbsp', category: 'pantry' },
-      { id: 'ing_18', name: 'blueberries', quantity: 70, unit: 'g', category: 'produce' },
-      { id: 'ing_19', name: 'banana', quantity: 0.5, unit: 'piece', category: 'produce' },
-      { id: 'ing_20', name: 'peanut butter', quantity: 1, unit: 'tbsp', category: 'pantry' },
-    ],
-    instructions: [
-      'In a wide bowl or mason jar, combine rolled oats, chia seeds, and a pinch of ground cinnamon.',
-      'Stir in Greek yogurt and almond milk until smooth and fully blended.',
-      'Cover and chill in refrigerator for at least 4 hours or overnight.',
-      'Before serving, top with fresh blueberries, sliced ripe banana, and a warm drizzle of almond butter.',
-    ],
-  },
-  {
-    id: 'rec_insta_cookies_04',
-    title: 'Cottage Cheese Chocolate Chip Cookies',
-    description: 'High-protein soft and chewy cookies made with blended cottage cheese and oat flour from Instagram Reel @mattwest_roadtoaesthetics. 145 kcal and 8g protein per cookie.',
-    sourceUrl: 'https://www.instagram.com/p/De8DbcQOpS-/',
-    sourceType: 'instagram',
-    imageUrl: '/src/assets/images/recipe_protein_oats_1793168926912.jpg',
-    prepTimeMinutes: 10,
-    cookTimeMinutes: 20,
-    standardServings: 6,
-    cuisine: 'Baking',
-    difficulty: 'Easy',
-    tags: ['High Protein', 'Gluten Free', 'Sweet Treat', 'Instagram Reel'],
-    createdAt: '2026-10-27T18:00:00Z',
-    nutritionPerServing: {
-      calories: 145,
-      proteinGrams: 8,
-      carbsGrams: 17,
-      fatGrams: 5,
-      fiberGrams: 2,
-    },
-    ingredients: [
-      { id: 'ing_21', name: 'egg', quantity: 1, unit: 'piece', category: 'protein' },
-      { id: 'ing_22', name: 'cottage cheese', quantity: 220, unit: 'g', category: 'dairy' },
-      { id: 'ing_23', name: 'vanilla extract', quantity: 1, unit: 'tsp', category: 'pantry' },
-      { id: 'ing_24', name: 'oat flour', quantity: 90, unit: 'g', category: 'pantry' },
-      { id: 'ing_25', name: 'baking powder', quantity: 2, unit: 'tsp', category: 'baking' },
-      { id: 'ing_26', name: 'salt', quantity: 0.25, unit: 'tsp', category: 'pantry' },
-      { id: 'ing_27', name: 'chocolate chips', quantity: 55, unit: 'g', category: 'pantry' },
-    ],
-    instructions: [
-      'Preheat oven to 180°C / 350°F and line a baking sheet with parchment paper.',
-      'Blend the thick cottage cheese in a blender or processor until completely smooth.',
-      'In a bowl, combine egg, blended cottage cheese, vanilla extract, oat flour, baking powder, and salt. Fold in chocolate chips until a soft dough forms.',
-      'Divide into 6 equal cookies on the lined baking tray.',
-      'Bake for around 20 minutes, or until cooked through and lightly golden.',
-      'Let them cool slightly, then enjoy!',
-    ],
-  },
-];
-
-let fridgeStore: any[] = [
-  { id: 'fr_1', name: 'chicken breast', quantity: 500, unit: 'g', category: 'protein', expiresInDays: 2, addedAt: '2026-10-26T10:00:00Z' },
-  { id: 'fr_2', name: 'spinach', quantity: 200, unit: 'g', category: 'produce', expiresInDays: 3, addedAt: '2026-10-25T14:00:00Z' },
-  { id: 'fr_3', name: 'garlic', quantity: 5, unit: 'clove', category: 'produce', expiresInDays: 14, addedAt: '2026-10-20T09:00:00Z' },
-  { id: 'fr_4', name: 'olive oil', quantity: 500, unit: 'ml', category: 'pantry', expiresInDays: 120, addedAt: '2026-10-15T08:00:00Z' },
-  { id: 'fr_5', name: 'brown rice', quantity: 800, unit: 'g', category: 'pantry', expiresInDays: 90, addedAt: '2026-10-18T11:00:00Z' },
-  { id: 'fr_6', name: 'greek yogurt', quantity: 400, unit: 'g', category: 'dairy', expiresInDays: 5, addedAt: '2026-10-26T16:00:00Z' },
-  { id: 'fr_7', name: 'rolled oats', quantity: 1000, unit: 'g', category: 'pantry', expiresInDays: 180, addedAt: '2026-10-10T12:00:00Z' },
-  { id: 'fr_8', name: 'blueberries', quantity: 150, unit: 'g', category: 'produce', expiresInDays: 4, addedAt: '2026-10-26T18:00:00Z' },
-  { id: 'fr_9', name: 'chia seeds', quantity: 200, unit: 'g', category: 'pantry', expiresInDays: 150, addedAt: '2026-10-12T10:00:00Z' },
-];
-
-let groceryStore: any[] = [];
 
 // Helper to parse ISO 8601 durations like PT20M, PT1H30M
 function parseIsoDuration(durationStr: string): number {
@@ -427,7 +260,7 @@ async function scrapeInstagramRecipe(url: string): Promise<any | null> {
     title = 'Cottage Cheese Chocolate Chip Cookies (@mattwest_roadtoaesthetics Reel)';
     description =
       'High-protein soft and chewy cookies made with blended cottage cheese and oat flour. 145 kcal & 8g protein per cookie.';
-    imageUrl = imageUrl || '/src/assets/images/recipe_protein_oats_1793168926912.jpg';
+    imageUrl = imageUrl || '';
     standardServings = 6;
     rawIngredients = [
       '1 large egg',
@@ -458,7 +291,7 @@ async function scrapeInstagramRecipe(url: string): Promise<any | null> {
     description: description || 'Imported from Instagram Reel.',
     sourceUrl: url,
     sourceType: 'instagram',
-    imageUrl: imageUrl || '/src/assets/images/recipe_protein_oats_1793168926912.jpg',
+    imageUrl: imageUrl || '',
     prepTimeMinutes: 10,
     cookTimeMinutes: 20,
     standardServings: standardServings || 4,
@@ -537,7 +370,7 @@ async function scrapeFacebookRecipe(url: string): Promise<any> {
     description: description || 'Recipe extracted from Facebook post.',
     sourceUrl: url,
     sourceType: 'facebook',
-    imageUrl: imageUrl || '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
+    imageUrl: imageUrl || '',
     prepTimeMinutes: 15,
     cookTimeMinutes: 20,
     standardServings: 4,
@@ -663,7 +496,7 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
           sourceType: 'facebook',
           title: fbResult.title || 'Facebook Recipe Post',
           description: fbResult.description || 'Facebook recipe post',
-          imageUrl: fbResult.imageUrl || '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
+          imageUrl: fbResult.imageUrl || '',
           message: 'Facebook restricts automated server scraping with login walls. Paste the post caption or text below, and AI will extract the ingredients, instructions, and macro breakdown!',
         },
       });
@@ -677,7 +510,7 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
         description: 'Chilled rotini pasta tossed with cherry tomatoes, diced cucumbers, black olives, red onion, and zesty Italian vinaigrette.',
         sourceUrl: url,
         sourceType: 'bookmark',
-        imageUrl: '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
+        imageUrl: '',
         prepTimeMinutes: 15,
         cookTimeMinutes: 10,
         standardServings: 6,
@@ -704,7 +537,7 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
         description: 'High-protein lunch bowl featuring seared wild salmon, steamed brown rice, edamame, avocado slices, and sesame vinaigrette.',
         sourceUrl: url,
         sourceType: 'pinterest',
-        imageUrl: '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
+        imageUrl: '',
         prepTimeMinutes: 10,
         cookTimeMinutes: 12,
         standardServings: 2,
@@ -730,7 +563,7 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
         description: 'Crispy golden pan-seared chicken cutlets in a bright lemon garlic pan reduction with baby spinach.',
         sourceUrl: url,
         sourceType: 'bookmark',
-        imageUrl: '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
+        imageUrl: '',
         prepTimeMinutes: 10,
         cookTimeMinutes: 15,
         standardServings: 4,
@@ -755,7 +588,7 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
         description: 'Golden skillet-roasted herb chicken with crispy skin and fragrant garlic rosemary butter sauce, shared on Facebook.',
         sourceUrl: url,
         sourceType: 'facebook',
-        imageUrl: '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
+        imageUrl: '',
         prepTimeMinutes: 15,
         cookTimeMinutes: 25,
         standardServings: 4,
@@ -811,7 +644,7 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
           sourceUrl: url,
           sourceType: isFb ? 'facebook' : 'bookmark',
           title: `Recipe from ${hostname}`,
-          imageUrl: '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
+          imageUrl: '',
           message: `Could not connect to ${hostname} directly (${fetchErr.message}). Paste the recipe text or caption below and AI will extract it!`,
         },
       });
@@ -830,7 +663,7 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
           sourceUrl: url,
           sourceType: isFb ? 'facebook' : 'bookmark',
           title: `Recipe from ${hostname}`,
-          imageUrl: '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
+          imageUrl: '',
           message: `${hostname} protected this post/page with anti-bot verification (HTTP ${response.status}). Paste the post text or recipe caption below, and AI will extract the ingredients and macros!`,
         },
       });
@@ -963,6 +796,13 @@ app.post('/api/scrape-recipe', async (req: Request, res: Response) => {
     }
     if (!imageUrl) {
       imageUrl = $('meta[property="og:image"]').attr('content') || '';
+    }
+    if (imageUrl) {
+      try {
+        imageUrl = new URL(imageUrl, url).href;
+      } catch {
+        imageUrl = '';
+      }
     }
 
     // HTML fallback for ingredients
@@ -1105,472 +945,8 @@ app.post('/api/ai-recipe-fallback', async (req: Request, res: Response) => {
   }
 });
 
-// -------------------------------------------------------------
-// 2. REST Endpoints for Recipes, Fridge, and Grocery
-// -------------------------------------------------------------
-app.get('/api/recipes', (_req: Request, res: Response) => {
-  res.json({ success: true, recipes: recipesStore });
-});
-
-app.post('/api/recipes', (req: Request, res: Response) => {
-  const newRecipe = req.body;
-  if (!newRecipe.id) {
-    newRecipe.id = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-  }
-  newRecipe.createdAt = newRecipe.createdAt || new Date().toISOString();
-  recipesStore.unshift(newRecipe);
-  res.status(201).json({ success: true, recipe: newRecipe });
-});
-
-app.put('/api/recipes/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const index = recipesStore.findIndex((r) => r.id === id);
-  if (index === -1) {
-    res.status(404).json({ error: 'Recipe not found' });
-    return;
-  }
-  recipesStore[index] = { ...recipesStore[index], ...req.body };
-  res.json({ success: true, recipe: recipesStore[index] });
-});
-
-app.delete('/api/recipes/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  recipesStore = recipesStore.filter((r) => r.id !== id);
-  res.json({ success: true });
-});
-
-app.get('/api/fridge', (_req: Request, res: Response) => {
-  res.json({ success: true, fridge: fridgeStore });
-});
-
-app.post('/api/fridge', (req: Request, res: Response) => {
-  const newItem = req.body;
-  if (!newItem.id) {
-    newItem.id = `fr_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-  }
-  newItem.addedAt = newItem.addedAt || new Date().toISOString();
-  fridgeStore.push(newItem);
-  res.status(201).json({ success: true, item: newItem });
-});
-
-app.put('/api/fridge/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const index = fridgeStore.findIndex((f) => f.id === id);
-  if (index === -1) {
-    res.status(404).json({ error: 'Fridge item not found' });
-    return;
-  }
-  fridgeStore[index] = { ...fridgeStore[index], ...req.body };
-  res.json({ success: true, item: fridgeStore[index] });
-});
-
-app.delete('/api/fridge/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  fridgeStore = fridgeStore.filter((f) => f.id !== id);
-  res.json({ success: true });
-});
-
-app.get('/api/grocery', (_req: Request, res: Response) => {
-  res.json({ success: true, grocery: groceryStore });
-});
-
-app.post('/api/grocery', (req: Request, res: Response) => {
-  const items = Array.isArray(req.body) ? req.body : [req.body];
-  for (const it of items) {
-    if (!it.id) {
-      it.id = `groc_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    }
-    groceryStore.push(it);
-  }
-  res.status(201).json({ success: true, grocery: groceryStore });
-});
-
-app.put('/api/grocery/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const index = groceryStore.findIndex((g) => g.id === id);
-  if (index === -1) {
-    res.status(404).json({ error: 'Grocery item not found' });
-    return;
-  }
-  groceryStore[index] = { ...groceryStore[index], ...req.body };
-  res.json({ success: true, item: groceryStore[index] });
-});
-
-app.delete('/api/grocery/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  groceryStore = groceryStore.filter((g) => g.id !== id);
-  res.json({ success: true });
-});
-
-app.delete('/api/grocery', (req: Request, res: Response) => {
-  const { clearPurchasedOnly } = req.query;
-  if (clearPurchasedOnly === 'true') {
-    groceryStore = groceryStore.filter((g) => !g.purchased);
-  } else {
-    groceryStore = [];
-  }
-  res.json({ success: true });
-});
-
-// -------------------------------------------------------------
-// 3. Model Context Protocol (MCP) Server Implementation
-// -------------------------------------------------------------
-const MCP_TOOLS = [
-  {
-    name: 'list_recipes',
-    description: 'Search and filter stored recipes in the user repository by keyword, cuisine, macro targets, or maximum calories.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Search term for recipe title or ingredients' },
-        cuisine: { type: 'string', description: 'Cuisine filter (e.g. Mediterranean, Japanese, Thai)' },
-        max_calories: { type: 'number', description: 'Maximum calories per serving' },
-        min_protein: { type: 'number', description: 'Minimum grams of protein per serving' },
-        tag: { type: 'string', description: 'Tag filter (e.g. "High Protein", "Gluten Free")' },
-      },
-    },
-  },
-  {
-    name: 'get_recipe',
-    description: 'Get full structured recipe details including scaled ingredients, preparation instructions, and nutritional breakdown for a specific serving size.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Unique Recipe ID' },
-        servings: { type: 'number', description: 'Target number of servings to scale to (defaults to recipe standard servings)' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'get_fridge_inventory',
-    description: 'Retrieve current fridge and pantry stock with quantities, units, categories, and expiration dates.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        category: { type: 'string', description: 'Filter by category (produce, dairy, protein, pantry, spices)' },
-      },
-    },
-  },
-  {
-    name: 'match_fridge_to_recipes',
-    description: 'Analyze user fridge inventory against recipe repository. Calculates match score percentages, lists items in stock, and identifies missing ingredients for each meal.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        min_match_score: { type: 'number', description: 'Minimum match percentage to include (0 to 100, default 0)' },
-        limit: { type: 'number', description: 'Maximum number of recipes to return (default 5)' },
-      },
-    },
-  },
-  {
-    name: 'generate_grocery_order',
-    description: 'Generate an organized grocery shopping and delivery order list for all missing ingredients required to cook one or more selected recipes.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        recipe_ids: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'List of recipe IDs to cook',
-        },
-        servings_multiplier: {
-          type: 'number',
-          description: 'Multiplier for servings (e.g. 1.0 for standard, 2.0 for double batch). Default 1.0.',
-        },
-      },
-      required: ['recipe_ids'],
-    },
-  },
-  {
-    name: 'add_recipe',
-    description: 'Programmatically add a new recipe to the user repository.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: 'Title of the recipe' },
-        description: { type: 'string', description: 'Short overview' },
-        servings: { type: 'number', description: 'Standard servings' },
-        ingredients: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              quantity: { type: 'number' },
-              unit: { type: 'string' },
-              category: { type: 'string' },
-            },
-            required: ['name', 'quantity', 'unit'],
-          },
-        },
-        instructions: {
-          type: 'array',
-          items: { type: 'string' },
-        },
-        tags: {
-          type: 'array',
-          items: { type: 'string' },
-        },
-      },
-      required: ['title', 'ingredients', 'instructions'],
-    },
-  },
-  {
-    name: 'update_fridge_inventory',
-    description: 'Add, update, or consume items in the user fridge and pantry.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['add', 'remove', 'consume'] },
-        items: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              quantity: { type: 'number' },
-              unit: { type: 'string' },
-              category: { type: 'string' },
-              expiresInDays: { type: 'number' },
-            },
-            required: ['name', 'quantity', 'unit'],
-          },
-        },
-      },
-      required: ['action', 'items'],
-    },
-  },
-];
-
-// Execute MCP Tool
-function executeMcpTool(toolName: string, args: any) {
-  switch (toolName) {
-    case 'list_recipes': {
-      let filtered = [...recipesStore];
-      if (args?.query) {
-        const q = String(args.query).toLowerCase();
-        filtered = filtered.filter(
-          (r) =>
-            r.title.toLowerCase().includes(q) ||
-            r.description.toLowerCase().includes(q) ||
-            r.ingredients.some((ing: any) => ing.name.toLowerCase().includes(q))
-        );
-      }
-      if (args?.cuisine) {
-        filtered = filtered.filter((r) => r.cuisine?.toLowerCase() === String(args.cuisine).toLowerCase());
-      }
-      if (args?.max_calories) {
-        filtered = filtered.filter((r) => r.nutritionPerServing.calories <= args.max_calories);
-      }
-      if (args?.min_protein) {
-        filtered = filtered.filter((r) => r.nutritionPerServing.proteinGrams >= args.min_protein);
-      }
-      if (args?.tag) {
-        filtered = filtered.filter((r) => r.tags?.some((t: string) => t.toLowerCase() === String(args.tag).toLowerCase()));
-      }
-
-      return {
-        count: filtered.length,
-        recipes: filtered.map((r) => ({
-          id: r.id,
-          title: r.title,
-          cuisine: r.cuisine,
-          servings: r.standardServings,
-          calories_per_serving: r.nutritionPerServing.calories,
-          protein_g: r.nutritionPerServing.proteinGrams,
-          carbs_g: r.nutritionPerServing.carbsGrams,
-          fat_g: r.nutritionPerServing.fatGrams,
-          ingredients_count: r.ingredients.length,
-          tags: r.tags,
-        })),
-      };
-    }
-
-    case 'get_recipe': {
-      const recipe = recipesStore.find((r) => r.id === args?.id);
-      if (!recipe) {
-        throw new Error(`Recipe with id '${args?.id}' not found`);
-      }
-      const targetServings = args?.servings && args.servings > 0 ? args.servings : recipe.standardServings;
-      const ratio = targetServings / recipe.standardServings;
-
-      const scaledIngredients = recipe.ingredients.map((ing: any) => ({
-        ...ing,
-        scaledQuantity: Math.round(ing.quantity * ratio * 100) / 100,
-      }));
-
-      return {
-        id: recipe.id,
-        title: recipe.title,
-        description: recipe.description,
-        source: recipe.sourceUrl || recipe.sourceType,
-        baseServings: recipe.standardServings,
-        scaledServings: targetServings,
-        nutritionPerServing: recipe.nutritionPerServing,
-        scaledIngredients,
-        instructions: recipe.instructions,
-      };
-    }
-
-    case 'get_fridge_inventory': {
-      let items = [...fridgeStore];
-      if (args?.category) {
-        items = items.filter((it) => it.category?.toLowerCase() === String(args.category).toLowerCase());
-      }
-      return {
-        total_items: items.length,
-        items,
-      };
-    }
-
-    case 'match_fridge_to_recipes': {
-      const fridgeNames = fridgeStore.map((f) => f.name.toLowerCase().trim());
-      const minScore = args?.min_match_score || 0;
-      const limit = args?.limit || 5;
-
-      const matches = recipesStore.map((recipe) => {
-        const total = recipe.ingredients.length;
-        const matched: string[] = [];
-        const missing: any[] = [];
-
-        for (const ing of recipe.ingredients) {
-          const ingName = ing.name.toLowerCase().trim();
-          const inFridge = fridgeNames.some((fn) => fn.includes(ingName) || ingName.includes(fn));
-          if (inFridge) {
-            matched.push(ing.name);
-          } else {
-            missing.push(ing);
-          }
-        }
-
-        const matchScore = total > 0 ? Math.round((matched.length / total) * 100) : 0;
-
-        return {
-          id: recipe.id,
-          title: recipe.title,
-          matchScore,
-          matchedCount: matched.length,
-          totalIngredients: total,
-          matchedIngredients: matched,
-          missingIngredients: missing,
-          nutritionPerServing: recipe.nutritionPerServing,
-        };
-      });
-
-      const filtered = matches
-        .filter((m) => m.matchScore >= minScore)
-        .sort((a, b) => b.matchScore - a.matchScore)
-        .slice(0, limit);
-
-      return {
-        resultsCount: filtered.length,
-        recommendations: filtered,
-      };
-    }
-
-    case 'generate_grocery_order': {
-      const recipeIds: string[] = args?.recipe_ids || [];
-      const multiplier: number = args?.servings_multiplier || 1.0;
-
-      const targetRecipes = recipesStore.filter((r) => recipeIds.includes(r.id));
-      if (targetRecipes.length === 0) {
-        throw new Error('No matching recipes found for the provided IDs');
-      }
-
-      const fridgeNames = fridgeStore.map((f) => f.name.toLowerCase().trim());
-      const neededItems: any[] = [];
-
-      for (const recipe of targetRecipes) {
-        for (const ing of recipe.ingredients) {
-          const ingName = ing.name.toLowerCase().trim();
-          const hasInFridge = fridgeNames.some((fn) => fn.includes(ingName) || ingName.includes(fn));
-          if (!hasInFridge) {
-            neededItems.push({
-              id: `groc_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-              name: ing.name,
-              quantity: Math.round(ing.quantity * multiplier * 100) / 100,
-              unit: ing.unit,
-              category: ing.category || 'pantry',
-              recipeSource: recipe.title,
-              purchased: false,
-            });
-          }
-        }
-      }
-
-      // Add to store
-      for (const item of neededItems) {
-        groceryStore.push(item);
-      }
-
-      return {
-        generatedCount: neededItems.length,
-        orderList: neededItems,
-        note: 'Items have been appended to your active grocery cart. Ready for delivery order via Instacart or local grocery checkout.',
-      };
-    }
-
-    case 'add_recipe': {
-      const { title, description, servings, ingredients, instructions, tags } = args;
-      const newRec = {
-        id: `rec_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        title,
-        description: description || 'Added via MCP Agent',
-        sourceType: 'manual',
-        imageUrl: '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg',
-        prepTimeMinutes: 15,
-        cookTimeMinutes: 20,
-        standardServings: servings || 2,
-        ingredients: (ingredients || []).map((i: any, idx: number) => ({
-          id: `ing_${idx}`,
-          name: i.name,
-          quantity: i.quantity,
-          unit: i.unit,
-          category: i.category || 'pantry',
-        })),
-        instructions: instructions || [],
-        tags: tags || ['MCP Added'],
-        createdAt: new Date().toISOString(),
-        nutritionPerServing: {
-          calories: 450,
-          proteinGrams: 30,
-          carbsGrams: 40,
-          fatGrams: 15,
-        },
-      };
-      recipesStore.unshift(newRec);
-      return { success: true, createdRecipe: newRec };
-    }
-
-    case 'update_fridge_inventory': {
-      const { action, items } = args;
-      if (action === 'add') {
-        for (const it of items) {
-          fridgeStore.push({
-            id: `fr_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-            name: it.name,
-            quantity: it.quantity,
-            unit: it.unit,
-            category: it.category || 'produce',
-            expiresInDays: it.expiresInDays || 7,
-            addedAt: new Date().toISOString(),
-          });
-        }
-      } else if (action === 'remove' || action === 'consume') {
-        const itemNames = items.map((i: any) => i.name.toLowerCase().trim());
-        fridgeStore = fridgeStore.filter((f) => !itemNames.includes(f.name.toLowerCase().trim()));
-      }
-      return { success: true, currentStockCount: fridgeStore.length };
-    }
-
-    default:
-      throw new Error(`Unknown MCP Tool: ${toolName}`);
-  }
-}
-
 // Model Context Protocol JSON-RPC 2.0 Handler
-app.post('/api/mcp', (req: Request, res: Response) => {
+app.post('/api/mcp', async (req: Request, res: Response) => {
   const { jsonrpc, id, method, params } = req.body;
 
   if (jsonrpc !== '2.0') {
@@ -1632,7 +1008,7 @@ app.post('/api/mcp', (req: Request, res: Response) => {
           return;
         }
 
-        const output = executeMcpTool(name, toolArgs);
+        const output = await executeMcpTool(name, toolArgs);
         res.json({
           jsonrpc: '2.0',
           id,
@@ -1683,7 +1059,7 @@ app.post('/api/mcp', (req: Request, res: Response) => {
                 {
                   uri,
                   mimeType: 'application/json',
-                  text: JSON.stringify(recipesStore, null, 2),
+                  text: JSON.stringify(await store.listRecipes(), null, 2),
                 },
               ],
             },
@@ -1698,7 +1074,7 @@ app.post('/api/mcp', (req: Request, res: Response) => {
                 {
                   uri,
                   mimeType: 'application/json',
-                  text: JSON.stringify(fridgeStore, null, 2),
+                  text: JSON.stringify(await store.listFridgeItems(), null, 2),
                 },
               ],
             },

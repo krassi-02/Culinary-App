@@ -95,7 +95,7 @@ export const RecipeEditorModal: React.FC<RecipeEditorModalProps> = ({
       description: description.trim() || 'A standardized home recipe with calculated macro balance.',
       sourceUrl: sourceUrl.trim() || undefined,
       sourceType: initialRecipe?.sourceType || 'manual',
-      imageUrl: imageUrl.trim() || '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
+      imageUrl: imageUrl.trim() || '',
       prepTimeMinutes: Number(prepTimeMinutes) || 10,
       cookTimeMinutes: Number(cookTimeMinutes) || 15,
       standardServings: Number(standardServings) || 2,

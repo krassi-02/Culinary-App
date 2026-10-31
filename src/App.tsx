@@ -10,13 +10,10 @@ import { FridgeMatcher } from './components/FridgeMatcher';
 import { GroceryList } from './components/GroceryList';
 import { McpConsole } from './components/McpConsole';
 import { UserProfileModal } from './components/UserProfileModal';
-import {
-  auth,
-  testConnection,
-  ensureUserProfileExists,
-  UserProfileData,
-} from './lib/firebase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { fetchUserProfile, UserProfileData } from './lib/userProfile';
+import type { User as AuthUser } from '@supabase/supabase-js';
+import { subscribeToAuthChanges } from './lib/auth';
+import { AuthPage, AuthMode } from './components/AuthPage';
 import { Search, Filter, Plus, Sparkles, ChefHat, CheckCircle2, ArrowRight } from 'lucide-react';
 
 export default function App() {
@@ -25,14 +22,15 @@ export default function App() {
   const [fridgeItems, setFridgeItems] = useState<FridgeItem[]>(INITIAL_FRIDGE_ITEMS);
   const [groceryItems, setGroceryItems] = useState<GroceryItem[]>([]);
 
-  // User Profile & Firebase Auth
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  // User Profile & Auth
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfileData | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
-  const [cuisineFilter, setCuisineFilter] = useState('all');
+  const [fridgeMatchOnly, setFridgeMatchOnly] = useState(false);
   const [macroFilter, setMacroFilter] = useState<'all' | 'high-protein' | 'low-carb' | 'low-cal'>('all');
 
   // Modals state
@@ -49,19 +47,18 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // 1. Initialize Firestore connection test & Auth listener
+  // 1. Auth listener
   useEffect(() => {
-    testConnection().then((connected) => {
-      if (connected) {
-        console.log('Firestore database connection verified.');
-      }
-    });
-
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = subscribeToAuthChanges((user) => {
       setCurrentUser(user);
-      if (user) {
+      (async () => {
+        if (!user) {
+          setUserProfile(null);
+          return;
+        }
+        setAuthMode(null);
         try {
-          const profile = await ensureUserProfileExists(user);
+          const profile = await fetchUserProfile(user);
           setUserProfile(profile);
           if (profile.defaultServings) {
             setModalServings(profile.defaultServings);
@@ -70,9 +67,7 @@ export default function App() {
         } catch (e: any) {
           console.error('Failed to load profile:', e);
         }
-      } else {
-        setUserProfile(null);
-      }
+      })();
     });
 
     return () => unsubscribe();
@@ -265,9 +260,7 @@ export default function App() {
       if (!matchTitle && !matchDesc && !matchIng) return false;
     }
 
-    if (cuisineFilter !== 'all') {
-      if (r.cuisine?.toLowerCase() !== cuisineFilter.toLowerCase()) return false;
-    }
+    if (fridgeMatchOnly && calculateMatch(r) < 80) return false;
 
     if (macroFilter === 'high-protein') {
       if (r.nutritionPerServing.proteinGrams < 30) return false;
@@ -279,9 +272,6 @@ export default function App() {
 
     return true;
   });
-
-  // Extract unique cuisines
-  const availableCuisines = Array.from(new Set(recipes.map((r) => r.cuisine).filter(Boolean))) as string[];
 
   return (
     <div className="min-h-screen bg-[#fbfbf9] text-zinc-900 flex flex-col font-sans">
@@ -358,17 +348,18 @@ export default function App() {
                 />
               </div>
 
-              {/* Cuisine Dropdown */}
-              <select
-                value={cuisineFilter}
-                onChange={(e) => setCuisineFilter(e.target.value)}
-                className="px-3 py-2 text-xs border border-zinc-300 rounded-lg bg-white text-zinc-700 focus:outline-none"
+              <button
+                type="button"
+                aria-pressed={fridgeMatchOnly}
+                onClick={() => setFridgeMatchOnly((prev) => !prev)}
+                className={`px-3 py-2 text-xs font-medium rounded-lg border whitespace-nowrap transition-colors ${
+                  fridgeMatchOnly
+                    ? 'bg-emerald-700 border-emerald-700 text-white'
+                    : 'bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-50'
+                }`}
               >
-                <option value="all">All Cuisines</option>
-                {availableCuisines.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+                80%+ in Fridge
+              </button>
 
               {/* Macro Segmented Buttons */}
               <div className="flex items-center gap-1 bg-zinc-200/80 p-1 rounded-lg text-xs font-medium">
@@ -423,7 +414,7 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     setSearchQuery('');
-                    setCuisineFilter('all');
+                    setFridgeMatchOnly(false);
                     setMacroFilter('all');
                   }}
                   className="mt-4 px-4 py-1.5 text-xs font-semibold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
@@ -509,18 +500,31 @@ export default function App() {
         {activeTab === 'mcp' && <McpConsole />}
       </main>
 
+      {/* Sign Up / Sign In Page */}
+      {authMode && !currentUser && (
+        <AuthPage
+          mode={authMode}
+          onModeChange={setAuthMode}
+          onClose={() => setAuthMode(null)}
+        />
+      )}
+
       {/* User Profile Modal */}
       {isProfileOpen && (
         <UserProfileModal
           currentUser={currentUser}
           profile={userProfile}
           onClose={() => setIsProfileOpen(false)}
+          onOpenAuth={(mode) => {
+            setIsProfileOpen(false);
+            setAuthMode(mode);
+          }}
           onProfileUpdated={(updated) => {
             setUserProfile(updated);
             if (updated.defaultServings) {
               setModalServings(updated.defaultServings);
             }
-            showToast('User profile saved to Firestore database!');
+            showToast('User profile saved!');
           }}
         />
       )}

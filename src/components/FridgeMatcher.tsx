@@ -28,7 +28,7 @@ export const FridgeMatcher: React.FC<FridgeMatcherProps> = ({
   const [newItemExpiry, setNewItemExpiry] = useState('7');
 
   // Filter state for recipe matches
-  const [filterMode, setFilterMode] = useState<'all' | 'ready' | 'almost'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'ready' | 'almost' | 'eighty'>('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [batchGroceryFeedback, setBatchGroceryFeedback] = useState<string | null>(null);
 
@@ -81,9 +81,13 @@ export const FridgeMatcher: React.FC<FridgeMatcherProps> = ({
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
 
+  const meetsEightyPercent = (item: typeof recipeMatches[0]) =>
+    item.totalCount > 0 && item.inStockCount / item.totalCount >= 0.8;
+
   const filteredMatches = recipeMatches.filter((item) => {
     if (filterMode === 'ready') return item.matchScore === 100;
     if (filterMode === 'almost') return item.matchScore >= 60 && item.matchScore < 100;
+    if (filterMode === 'eighty') return meetsEightyPercent(item);
     return true;
   });
 
@@ -271,7 +275,7 @@ export const FridgeMatcher: React.FC<FridgeMatcherProps> = ({
             </span>
 
             {/* Filter buttons */}
-            <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-lg text-xs font-medium">
+            <div className="flex flex-wrap items-center gap-1 bg-zinc-100 p-1 rounded-lg text-xs font-medium">
               <button
                 type="button"
                 onClick={() => setFilterMode('all')}
@@ -298,6 +302,15 @@ export const FridgeMatcher: React.FC<FridgeMatcherProps> = ({
                 }`}
               >
                 Missing 1-2 ({recipeMatches.filter((m) => m.matchScore >= 60 && m.matchScore < 100).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterMode('eighty')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  filterMode === 'eighty' ? 'bg-white text-zinc-900 shadow-2xs font-semibold' : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                80%+ Ingredients ({recipeMatches.filter(meetsEightyPercent).length})
               </button>
             </div>
           </div>

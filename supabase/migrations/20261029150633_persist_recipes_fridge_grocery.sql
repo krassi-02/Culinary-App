@@ -1,0 +1,61 @@
+/*
+# Persist recipes, fridge items, and grocery list
+
+1. New Tables
+- `recipes`: one row per recipe. `id` (text, primary key), `data` (jsonb, the full recipe), `created_at` (timestamp, used for ordering).
+- `fridge_items`: one row per fridge or pantry item. `id`, `data` (jsonb), `created_at`.
+- `grocery_items`: one row per grocery list entry. `id`, `data` (jsonb), `created_at`.
+
+2. Security
+- Row level security is enabled on all three tables with no browser-facing policies.
+- Only the server (service_role) can read or write them. The browser never talks to these tables directly.
+
+3. Seed data
+- The starter recipes and fridge items are inserted once. Rows that already exist are left untouched (ON CONFLICT DO NOTHING), so re-running this migration never overwrites user edits.
+
+4. Notes
+- Nothing is dropped or altered. Data written to these tables survives server restarts.
+*/
+
+CREATE TABLE IF NOT EXISTS recipes (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS fridge_items (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS grocery_items (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE recipes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fridge_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE grocery_items ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON recipes, fridge_items, grocery_items TO service_role;
+
+INSERT INTO recipes (id, data, created_at) VALUES
+('rec_salmon_bowl_01', $j${"id":"rec_salmon_bowl_01","title":"Glazed Salmon & Edamame Grain Bowl","description":"Crispy pan-seared salmon fillet over warm brown rice with creamy avocado, crisp cucumber ribbons, steamed edamame, and toasted sesame.","sourceUrl":"https://pinterest.com/pin/salmon-grain-bowl-macro-recipe","sourceType":"pinterest","imageUrl":"/src/assets/images/recipe_salmon_bowl_1793168926160.jpg","prepTimeMinutes":15,"cookTimeMinutes":12,"standardServings":2,"cuisine":"Japanese Fusion","difficulty":"Easy","tags":["High Protein","Omega 3","Gluten Free","Meal Prep"],"createdAt":"2026-10-27T12:00:00Z","nutritionPerServing":{"calories":540,"proteinGrams":38,"carbsGrams":42,"fatGrams":22,"fiberGrams":7},"ingredients":[{"id":"ing_1","name":"salmon","quantity":300,"unit":"g","category":"protein"},{"id":"ing_2","name":"brown rice","quantity":240,"unit":"g","category":"pantry"},{"id":"ing_3","name":"edamame","quantity":120,"unit":"g","category":"produce"},{"id":"ing_4","name":"avocado","quantity":1,"unit":"piece","category":"produce"},{"id":"ing_5","name":"cucumber","quantity":0.5,"unit":"piece","category":"produce"},{"id":"ing_6","name":"olive oil","quantity":1,"unit":"tbsp","category":"pantry"}],"instructions":["Pat salmon fillets dry with paper towels and season with coarse sea salt and cracked pepper.","Heat olive oil in a non-stick skillet over medium-high heat. Sear salmon skin-side down for 4 minutes until golden and crisp, then flip and cook for 3 minutes.","Divide warm steamed brown rice into bowls.","Arrange cucumber ribbons, steamed edamame, and sliced avocado next to the rice.","Nestle seared salmon on top and garnish with toasted sesame seeds and fresh herbs."]}$j$::jsonb, '2026-10-27T12:00:00Z'),
+('rec_med_pasta_02', $j${"id":"rec_med_pasta_02","title":"Mediterranean Lemon Herb Chicken Penne","description":"Tender pan-seared herb chicken tossed with al dente penne pasta, wilted baby spinach, sun-dried tomatoes, and shaved parmesan.","sourceUrl":"https://instagram.com/p/mediterranean-chicken-penne","sourceType":"instagram","imageUrl":"/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg","prepTimeMinutes":10,"cookTimeMinutes":18,"standardServings":4,"cuisine":"Mediterranean","difficulty":"Easy","tags":["Balanced Macros","Quick Dinner","High Protein"],"createdAt":"2026-10-27T14:30:00Z","nutritionPerServing":{"calories":490,"proteinGrams":42,"carbsGrams":51,"fatGrams":14,"fiberGrams":5},"ingredients":[{"id":"ing_7","name":"chicken breast","quantity":450,"unit":"g","category":"protein"},{"id":"ing_8","name":"penne pasta","quantity":300,"unit":"g","category":"pantry"},{"id":"ing_9","name":"spinach","quantity":150,"unit":"g","category":"produce"},{"id":"ing_10","name":"tomato","quantity":100,"unit":"g","category":"produce"},{"id":"ing_11","name":"parmesan cheese","quantity":40,"unit":"g","category":"dairy"},{"id":"ing_12","name":"garlic","quantity":3,"unit":"clove","category":"produce"},{"id":"ing_13","name":"olive oil","quantity":2,"unit":"tbsp","category":"pantry"}],"instructions":["Boil penne pasta in well-salted water until al dente; reserve 1/2 cup pasta water before draining.","Slice chicken breast into cutlets, season with dried oregano, garlic, salt, and pepper.","Sear chicken in olive oil for 5 minutes per side until internal temperature reaches 165°F (74°C). Rest and slice.","In the same skillet, sauté minced garlic, sun-dried tomatoes, and baby spinach until wilted.","Toss drained pasta and sliced chicken with the vegetables, adding a splash of pasta water and finishing with shaved parmesan."]}$j$::jsonb, '2026-10-27T14:30:00Z'),
+('rec_protein_oats_03', $j${"id":"rec_protein_oats_03","title":"Blueberry Almond Butter Protein Oats","description":"Thick overnight rolled oats soaked in almond milk, folded with Greek yogurt and chia seeds, topped with wild blueberries and warm almond butter.","sourceUrl":"https://saved-bookmark.com/macro-friendly-overnight-oats","sourceType":"bookmark","imageUrl":"/src/assets/images/recipe_protein_oats_1793168926912.jpg","prepTimeMinutes":5,"cookTimeMinutes":0,"standardServings":1,"cuisine":"Breakfast","difficulty":"Easy","tags":["Vegetarian","High Fiber","No Cook","Breakfast"],"createdAt":"2026-10-27T16:00:00Z","nutritionPerServing":{"calories":420,"proteinGrams":28,"carbsGrams":54,"fatGrams":11,"fiberGrams":9},"ingredients":[{"id":"ing_14","name":"rolled oats","quantity":60,"unit":"g","category":"pantry"},{"id":"ing_15","name":"greek yogurt","quantity":150,"unit":"g","category":"dairy"},{"id":"ing_16","name":"milk","quantity":120,"unit":"ml","category":"dairy"},{"id":"ing_17","name":"chia seeds","quantity":1,"unit":"tbsp","category":"pantry"},{"id":"ing_18","name":"blueberries","quantity":70,"unit":"g","category":"produce"},{"id":"ing_19","name":"banana","quantity":0.5,"unit":"piece","category":"produce"},{"id":"ing_20","name":"peanut butter","quantity":1,"unit":"tbsp","category":"pantry"}],"instructions":["In a wide bowl or mason jar, combine rolled oats, chia seeds, and a pinch of ground cinnamon.","Stir in Greek yogurt and almond milk until smooth and fully blended.","Cover and chill in refrigerator for at least 4 hours or overnight.","Before serving, top with fresh blueberries, sliced ripe banana, and a warm drizzle of almond butter."]}$j$::jsonb, '2026-10-27T16:00:00Z'),
+('rec_insta_cookies_04', $j${"id":"rec_insta_cookies_04","title":"Cottage Cheese Chocolate Chip Cookies","description":"High-protein soft and chewy cookies made with blended cottage cheese and oat flour from Instagram Reel @mattwest_roadtoaesthetics. 145 kcal and 8g protein per cookie.","sourceUrl":"https://www.instagram.com/p/De8DbcQOpS-/","sourceType":"instagram","imageUrl":"/src/assets/images/recipe_protein_oats_1793168926912.jpg","prepTimeMinutes":10,"cookTimeMinutes":20,"standardServings":6,"cuisine":"Baking","difficulty":"Easy","tags":["High Protein","Gluten Free","Sweet Treat","Instagram Reel"],"createdAt":"2026-10-27T18:00:00Z","nutritionPerServing":{"calories":145,"proteinGrams":8,"carbsGrams":17,"fatGrams":5,"fiberGrams":2},"ingredients":[{"id":"ing_21","name":"egg","quantity":1,"unit":"piece","category":"protein"},{"id":"ing_22","name":"cottage cheese","quantity":220,"unit":"g","category":"dairy"},{"id":"ing_23","name":"vanilla extract","quantity":1,"unit":"tsp","category":"pantry"},{"id":"ing_24","name":"oat flour","quantity":90,"unit":"g","category":"pantry"},{"id":"ing_25","name":"baking powder","quantity":2,"unit":"tsp","category":"baking"},{"id":"ing_26","name":"salt","quantity":0.25,"unit":"tsp","category":"pantry"},{"id":"ing_27","name":"chocolate chips","quantity":55,"unit":"g","category":"pantry"}],"instructions":["Preheat oven to 180°C / 350°F and line a baking sheet with parchment paper.","Blend the thick cottage cheese in a blender or processor until completely smooth.","In a bowl, combine egg, blended cottage cheese, vanilla extract, oat flour, baking powder, and salt. Fold in chocolate chips until a soft dough forms.","Divide into 6 equal cookies on the lined baking tray.","Bake for around 20 minutes, or until cooked through and lightly golden.","Let them cool slightly, then enjoy!"]}$j$::jsonb, '2026-10-27T18:00:00Z')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO fridge_items (id, data, created_at) VALUES
+('fr_1', $j${"id":"fr_1","name":"chicken breast","quantity":500,"unit":"g","category":"protein","expiresInDays":2,"addedAt":"2026-10-26T10:00:00Z"}$j$::jsonb, '2026-10-26T10:00:00Z'),
+('fr_2', $j${"id":"fr_2","name":"spinach","quantity":200,"unit":"g","category":"produce","expiresInDays":3,"addedAt":"2026-10-25T14:00:00Z"}$j$::jsonb, '2026-10-25T14:00:00Z'),
+('fr_3', $j${"id":"fr_3","name":"garlic","quantity":5,"unit":"clove","category":"produce","expiresInDays":14,"addedAt":"2026-10-20T09:00:00Z"}$j$::jsonb, '2026-10-20T09:00:00Z'),
+('fr_4', $j${"id":"fr_4","name":"olive oil","quantity":500,"unit":"ml","category":"pantry","expiresInDays":120,"addedAt":"2026-10-15T08:00:00Z"}$j$::jsonb, '2026-10-15T08:00:00Z'),
+('fr_5', $j${"id":"fr_5","name":"brown rice","quantity":800,"unit":"g","category":"pantry","expiresInDays":90,"addedAt":"2026-10-18T11:00:00Z"}$j$::jsonb, '2026-10-18T11:00:00Z'),
+('fr_6', $j${"id":"fr_6","name":"greek yogurt","quantity":400,"unit":"g","category":"dairy","expiresInDays":5,"addedAt":"2026-10-26T16:00:00Z"}$j$::jsonb, '2026-10-26T16:00:00Z'),
+('fr_7', $j${"id":"fr_7","name":"rolled oats","quantity":1000,"unit":"g","category":"pantry","expiresInDays":180,"addedAt":"2026-10-10T12:00:00Z"}$j$::jsonb, '2026-10-10T12:00:00Z'),
+('fr_8', $j${"id":"fr_8","name":"blueberries","quantity":150,"unit":"g","category":"produce","expiresInDays":4,"addedAt":"2026-10-26T18:00:00Z"}$j$::jsonb, '2026-10-26T18:00:00Z'),
+('fr_9', $j${"id":"fr_9","name":"chia seeds","quantity":200,"unit":"g","category":"pantry","expiresInDays":150,"addedAt":"2026-10-12T10:00:00Z"}$j$::jsonb, '2026-10-12T10:00:00Z')
+ON CONFLICT (id) DO NOTHING;

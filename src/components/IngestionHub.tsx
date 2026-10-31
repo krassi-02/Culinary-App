@@ -30,6 +30,7 @@ import {
 import { runImageOCR, OCRProgress } from '../lib/ocrEngine';
 import { parseRawRecipeText, parseIngredientLine } from '../lib/recipeParser';
 import { calculateRecipeNutrition } from '../lib/nutritionDatabase';
+import { isDraftComplete, mapAiFallbackToRecipe, importRecipeFromUrl } from '../lib/urlRecipeImport';
 import {
   BookmarkItem,
   BookmarkParseResult,
@@ -93,6 +94,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
   const [showPastedBookmarksInput, setShowPastedBookmarksInput] = useState(false);
   const [showExportGuide, setShowExportGuide] = useState(false);
   const [bookmarkStatusMessage, setBookmarkStatusMessage] = useState<string | null>(null);
+  const [bulkImportProgress, setBulkImportProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Sample browser bookmark export for 1-click test
   const SAMPLE_BOOKMARK_EXPORT = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
@@ -215,63 +217,74 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
   const getImageForBookmark = (bm: BookmarkItem) => {
     const lower = `${bm.title} ${bm.categorySuggestion || ''}`.toLowerCase();
     if (lower.includes('salmon') || lower.includes('grain') || lower.includes('bowl')) {
-      return '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg';
+      return '';
     }
     if (lower.includes('cookie') || lower.includes('oat') || lower.includes('bake') || lower.includes('bread') || lower.includes('dessert')) {
-      return '/src/assets/images/recipe_protein_oats_1793168926912.jpg';
+      return '';
     }
-    return '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg';
+    return '';
   };
 
   // Batch import selected bookmarks to Recipe Vault
-  const handleImportSelectedBookmarks = () => {
-    if (!bookmarkResult) return;
+  const bookmarkSourceType = (url: string): Recipe['sourceType'] => {
+    if (url.includes('instagram.com')) return 'instagram';
+    if (url.includes('facebook.com') || url.includes('fb.watch')) return 'facebook';
+    if (url.includes('pinterest.com') || url.includes('pin.it')) return 'pinterest';
+    return 'bookmark';
+  };
+
+  // Uses the fetched recipe when one was read; otherwise saves the bookmark as a link placeholder
+  const buildBookmarkRecipe = (bm: BookmarkItem, idx: number, draft: Partial<Recipe> | null): Recipe => {
+    const folderLabel = bm.folderPath.join(' / ') || 'Bookmarks Bar';
+    return {
+      id: `rec_bm_${Date.now()}_${idx}`,
+      title: draft?.title || bm.title,
+      description: draft?.description || `Imported from browser bookmark (${bm.domain})${bm.folderPath.length > 0 ? ` in folder "${bm.folderPath.join(' > ')}"` : ''}.`,
+      sourceUrl: bm.url,
+      sourceType: bookmarkSourceType(bm.url),
+      imageUrl: draft?.imageUrl || '',
+      prepTimeMinutes: draft?.prepTimeMinutes || 10,
+      cookTimeMinutes: draft?.cookTimeMinutes || 20,
+      standardServings: draft?.standardServings || 2,
+      cuisine: draft?.cuisine || bm.categorySuggestion || 'Home Cooking',
+      difficulty: 'Easy',
+      ingredients: draft?.ingredients?.length
+        ? draft.ingredients
+        : [{ id: `ing_bm_${idx}_0`, name: `Original recipe source from ${bm.domain}`, quantity: 1, unit: 'serving', category: 'pantry' }],
+      instructions: draft?.instructions?.length
+        ? draft.instructions
+        : [
+            `Open saved recipe link: ${bm.url}`,
+            `Folder origin: ${folderLabel}`,
+            `Use "Extract from Web URL" in the Ingestion Hub to parse the full ingredients list and auto-calculated nutritional macros.`,
+          ],
+      nutritionPerServing: draft?.nutritionPerServing ?? { calories: 0, proteinGrams: 0, carbsGrams: 0, fatGrams: 0, fiberGrams: 0 },
+      tags: [...(draft?.tags ?? []), 'Browser Bookmark', bm.domain, ...(bm.folderPath || [])],
+      createdAt: new Date().toISOString(),
+    };
+  };
+
+  // Batch import selected bookmarks to Recipe Vault, reading each page and falling back to AI when needed
+  const handleImportSelectedBookmarks = async () => {
+    if (!bookmarkResult || bulkImportProgress) return;
     const itemsToImport = bookmarkResult.items.filter((it) => selectedBookmarkIds.has(it.id));
     if (itemsToImport.length === 0) return;
 
-    const newRecipes: Recipe[] = itemsToImport.map((bm, idx) => {
-      let sourceType: Recipe['sourceType'] = 'bookmark';
-      if (bm.url.includes('instagram.com')) sourceType = 'instagram';
-      else if (bm.url.includes('facebook.com') || bm.url.includes('fb.watch')) sourceType = 'facebook';
-      else if (bm.url.includes('pinterest.com') || bm.url.includes('pin.it')) sourceType = 'pinterest';
-
-      return {
-        id: `rec_bm_${Date.now()}_${idx}`,
-        title: bm.title,
-        description: `Imported from browser bookmark (${bm.domain})${bm.folderPath.length > 0 ? ` in folder "${bm.folderPath.join(' > ')}"` : ''}.`,
-        sourceUrl: bm.url,
-        sourceType,
-        imageUrl: getImageForBookmark(bm),
-        prepTimeMinutes: 10,
-        cookTimeMinutes: 20,
-        standardServings: 2,
-        cuisine: bm.categorySuggestion || 'Home Cooking',
-        difficulty: 'Easy',
-        ingredients: [
-          {
-            id: `ing_bm_${idx}_0`,
-            name: `Original recipe source from ${bm.domain}`,
-            quantity: 1,
-            unit: 'serving',
-            category: 'pantry',
-          },
-        ],
-        instructions: [
-          `Open saved recipe link: ${bm.url}`,
-          `Folder origin: ${bm.folderPath.join(' / ') || 'Bookmarks Bar'}`,
-          `Use "Extract from Web URL" in the Ingestion Hub to parse the full ingredients list and auto-calculated nutritional macros.`,
-        ],
-        nutritionPerServing: {
-          calories: 0,
-          proteinGrams: 0,
-          carbsGrams: 0,
-          fatGrams: 0,
-          fiberGrams: 0,
-        },
-        tags: ['Browser Bookmark', bm.domain, ...(bm.folderPath || [])],
-        createdAt: new Date().toISOString(),
-      };
-    });
+    setBulkImportProgress({ done: 0, total: itemsToImport.length });
+    const newRecipes: Recipe[] = [];
+    let unreadableCount = 0;
+    for (const [idx, bm] of itemsToImport.entries()) {
+      let draft: Partial<Recipe> | null = null;
+      try {
+        draft = await importRecipeFromUrl(bm.url);
+      } catch {
+        draft = null;
+      }
+      if (!draft) unreadableCount += 1;
+      newRecipes.push(buildBookmarkRecipe(bm, idx, draft));
+      setBulkImportProgress({ done: idx + 1, total: itemsToImport.length });
+    }
+    setBulkImportProgress(null);
 
     if (onBatchRecipesImported) {
       onBatchRecipesImported(newRecipes);
@@ -280,7 +293,11 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
     }
 
     setImportedBookmarkUrls((prev) => new Set([...prev, ...newRecipes.map((r) => r.sourceUrl!)]));
-    setBookmarkStatusMessage(`Successfully imported ${newRecipes.length} bookmark recipes into your collection!`);
+    setBookmarkStatusMessage(
+      unreadableCount > 0
+        ? `Imported ${newRecipes.length} bookmark recipes. ${unreadableCount} could not be read automatically and were saved as links only.`
+        : `Successfully imported ${newRecipes.length} bookmark recipes into your collection!`
+    );
   };
 
   // Helper sample URLs for 1-click test with real Instagram Reel and Facebook examples
@@ -291,22 +308,6 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
     { label: 'AllRecipes Pasta Salad', url: 'https://www.allrecipes.com/recipe/23891/pasta-salad/' },
     { label: 'Food Network Lemon Chicken', url: 'https://www.foodnetwork.com/recipes/rachael-ray/lemon-chicken-recipe-1941655' },
   ];
-
-  // Helper: Determine if ingredients and nutritional macros were successfully identified
-  const hasSufficientIngredientsAndMacros = (
-    ingredients?: Ingredient[],
-    servings?: number,
-    nutrition?: { calories: number; proteinGrams: number; carbsGrams: number; fatGrams: number }
-  ): boolean => {
-    if (!ingredients || ingredients.length === 0) return false;
-    // Check if valid macros were extracted directly
-    if (nutrition && (nutrition.calories > 0 || (nutrition.proteinGrams > 0 || nutrition.carbsGrams > 0 || nutrition.fatGrams > 0))) {
-      return true;
-    }
-    // Check if deterministic nutrition calculator can identify macros from the ingredient names
-    const calculated = calculateRecipeNutrition(ingredients, servings || 2);
-    return calculated.calories > 0 || (calculated.proteinGrams > 0 || calculated.carbsGrams > 0 || calculated.fatGrams > 0);
-  };
 
   // 1. Handle URL Ingestion (Server-Side JSON-LD & Microdata Scraper)
   const handleScrapeUrl = async (targetUrl?: string) => {
@@ -349,8 +350,9 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
       );
 
       const isAIFallback = scraped.parsedVia?.startsWith('ai-fallback');
-      const isComplete = hasSufficientIngredientsAndMacros(
+      const isComplete = isDraftComplete(
         parsedIngredients,
+        scraped.instructions || [],
         scraped.standardServings,
         scraped.detectedNutrition
       );
@@ -372,7 +374,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
         description: scraped.description,
         sourceUrl: scraped.sourceUrl,
         sourceType: scraped.sourceType,
-        imageUrl: scraped.imageUrl || '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
+        imageUrl: scraped.imageUrl || '',
         prepTimeMinutes: scraped.prepTimeMinutes,
         cookTimeMinutes: scraped.cookTimeMinutes,
         standardServings: scraped.standardServings,
@@ -408,35 +410,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
         throw new Error(json.error || 'Fallback model failed to extract recipe and macros');
       }
       const data = json.data;
-      const formattedIngredients: Ingredient[] = (data.ingredients || []).map((i: any, idx: number) => ({
-        id: `ing_fb_${Date.now()}_${idx}`,
-        name: i.name,
-        quantity: Number(i.quantity) || 1,
-        unit: i.unit || 'item',
-        category: i.category || 'pantry',
-      }));
-
-      const base = overrideDraft || extractedDraft || {};
-      const draft: Partial<Recipe> = {
-        ...base,
-        title: data.title || base.title || 'Standardized Recipe',
-        description: data.description || 'Standardized with complete macro profile via AI Fallback.',
-        sourceUrl: base.sourceUrl,
-        sourceType: (base.sourceType as any) || 'bookmark',
-        imageUrl: base.imageUrl || '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
-        cuisine: data.cuisine || base.cuisine || 'International',
-        prepTimeMinutes: data.prepTimeMinutes || 15,
-        cookTimeMinutes: data.cookTimeMinutes || 20,
-        standardServings: data.standardServings || 4,
-        ingredients: formattedIngredients,
-        instructions: data.instructions || [],
-        nutritionPerServing: data.nutritionPerServing || (
-          formattedIngredients.length > 0
-            ? calculateRecipeNutrition(formattedIngredients, data.standardServings || 4)
-            : { calories: 0, proteinGrams: 0, carbsGrams: 0, fatGrams: 0 }
-        ),
-        tags: [...(base.tags || []), 'AI Standardized'],
-      };
+      const draft = mapAiFallbackToRecipe(data, overrideDraft || extractedDraft || {});
       setExtractedDraft(draft);
       setParsedMethod('ai-fallback');
       setManualPastePrompt(null);
@@ -471,13 +445,14 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
       });
 
       setLastRawText(rawText);
-      recipeDraft.imageUrl = imagePreview || '/src/assets/images/recipe_protein_oats_1793168926912.jpg';
+      recipeDraft.imageUrl = imagePreview || '';
       recipeDraft.sourceType = 'image';
 
       // If deterministic OCR did not identify complete ingredients OR macros, kick the AI!
-      const isComplete = hasSufficientIngredientsAndMacros(
-        recipeDraft.ingredients,
-        recipeDraft.standardServings
+      const isComplete = isDraftComplete(
+        recipeDraft.ingredients || [],
+        recipeDraft.instructions || [],
+        recipeDraft.standardServings || 2
       );
 
       if (!isComplete) {
@@ -502,9 +477,10 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
     const parsed = parseRawRecipeText(rawTextInput, 'bookmark');
     
     // If deterministic parsing did not identify ingredients or macros, kick the AI!
-    const isComplete = hasSufficientIngredientsAndMacros(
-      parsed.ingredients,
-      parsed.standardServings
+    const isComplete = isDraftComplete(
+      parsed.ingredients || [],
+      parsed.instructions || [],
+      parsed.standardServings || 2
     );
 
     if (!isComplete) {
@@ -531,7 +507,7 @@ export const IngestionHub: React.FC<IngestionHubProps> = ({
       description: extractedDraft.description || 'Imported via recipe pipeline.',
       sourceUrl: extractedDraft.sourceUrl,
       sourceType: extractedDraft.sourceType || 'bookmark',
-      imageUrl: extractedDraft.imageUrl || '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
+      imageUrl: extractedDraft.imageUrl || '',
       prepTimeMinutes: extractedDraft.prepTimeMinutes || 15,
       cookTimeMinutes: extractedDraft.cookTimeMinutes || 20,
       standardServings,
@@ -823,10 +799,7 @@ Instructions:
                         {
                           sourceUrl: manualPastePrompt.sourceUrl,
                           sourceType: manualPastePrompt.sourceType,
-                          imageUrl:
-                            manualPastePrompt.platform === 'facebook'
-                              ? '/src/assets/images/recipe_mediterranean_pasta_1793168927254.jpg'
-                              : '/src/assets/images/recipe_salmon_bowl_1793168926160.jpg',
+                          imageUrl: '',
                         }
                       );
                     }}
@@ -1178,13 +1151,15 @@ Instructions:
 
                   <button
                     type="button"
-                    disabled={selectedBookmarkIds.size === 0}
+                    disabled={selectedBookmarkIds.size === 0 || bulkImportProgress !== null}
                     onClick={handleImportSelectedBookmarks}
                     className="px-4 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2 shadow-xs"
                   >
                     <BookmarkCheck className="w-4 h-4" />
                     <span>
-                      Import {selectedBookmarkIds.size} Selected to Recipe Vault
+                      {bulkImportProgress
+                        ? `Reading recipes ${bulkImportProgress.done} of ${bulkImportProgress.total}...`
+                        : `Import ${selectedBookmarkIds.size} Selected to Recipe Vault`}
                     </span>
                   </button>
                 </div>

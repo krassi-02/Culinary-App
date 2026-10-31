@@ -1,17 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { User as FirebaseUser } from 'firebase/auth';
-import {
-  UserProfileData,
-  saveUserProfile,
-  signInWithGoogle,
-  signOutCurrentUser,
-} from '../lib/firebase';
+import type { User as AuthUser } from '@supabase/supabase-js';
+import { UserProfileData, saveUserProfile } from '../lib/userProfile';
+import { signOutCurrentUser } from '../lib/auth';
+import type { AuthMode } from './AuthPage';
 import { X, User, Check, LogOut, Flame, Target, Settings, ShieldCheck, Sparkles, AlertCircle } from 'lucide-react';
 
 interface UserProfileModalProps {
-  currentUser: FirebaseUser | null;
+  currentUser: AuthUser | null;
   profile: UserProfileData | null;
   onClose: () => void;
+  onOpenAuth: (mode: AuthMode) => void;
   onProfileUpdated: (updated: UserProfileData) => void;
 }
 
@@ -29,6 +27,7 @@ const AVAILABLE_DIETS = [
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   currentUser,
+  onOpenAuth,
   profile,
   onClose,
   onProfileUpdated,
@@ -106,12 +105,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     };
 
     try {
-      await saveUserProfile(currentUser.uid, updated);
+      await saveUserProfile(updated);
       onProfileUpdated(updated);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
     } catch (err: any) {
-      setFormError(err.message || 'Failed to save profile to Firestore');
+      setFormError(err.message || 'Failed to save profile');
     } finally {
       setSaving(false);
     }
@@ -140,20 +139,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 flex items-center justify-between">
             {currentUser ? (
               <div className="flex items-center gap-3">
-                {currentUser.photoURL ? (
-                  <img
-                    src={currentUser.photoURL}
-                    alt={currentUser.displayName || 'User'}
-                    className="w-10 h-10 rounded-full border border-zinc-200 object-cover"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">
-                    {currentUser.email?.charAt(0).toUpperCase() || 'U'}
-                  </div>
-                )}
+                <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">
+                  {currentUser.email?.charAt(0).toUpperCase() || 'U'}
+                </div>
                 <div>
                   <div className="text-sm font-bold text-zinc-900 flex items-center gap-1.5">
-                    <span>{currentUser.displayName || 'Authenticated User'}</span>
+                    <span>{profile?.displayName || 'Signed-in user'}</span>
                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
                   </div>
                   <div className="text-xs text-zinc-500 font-mono">{currentUser.email}</div>
@@ -162,7 +153,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             ) : (
               <div>
                 <div className="text-sm font-bold text-zinc-900">Guest Cooking Mode</div>
-                <div className="text-xs text-zinc-500">Sign in to sync your recipes and macros to Firestore database</div>
+                <div className="text-xs text-zinc-500">Sign in to sync your recipes and macros to your account</div>
               </div>
             )}
 
@@ -179,20 +170,22 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <span>Sign Out</span>
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={async () => {
-                  setFormError(null);
-                  try {
-                    await signInWithGoogle();
-                  } catch (e: any) {
-                    setFormError('Sign in failed: ' + (e.message || 'Please try again.'));
-                  }
-                }}
-                className="px-4 py-2 text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 rounded-lg shadow-2xs transition-colors"
-              >
-                Sign In with Google
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('signin')}
+                  className="px-3 py-1.5 text-xs font-semibold text-zinc-700 bg-white border border-zinc-300 hover:bg-zinc-100 rounded-lg transition-colors shadow-2xs"
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('signup')}
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-2xs"
+                >
+                  Create Account
+                </button>
+              </div>
             )}
           </div>
 
@@ -359,7 +352,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             {/* Submit */}
             <div className="flex items-center justify-between pt-2">
               <span className="text-xs text-zinc-400">
-                Stored in Firestore: <code className="text-zinc-600 font-mono">/users/{currentUser?.uid || 'guest'}</code>
+                Saved to your account
               </span>
 
               <div className="flex items-center gap-2">
@@ -381,7 +374,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       <span>Profile Saved to Database!</span>
                     </>
                   ) : (
-                    <span>{saving ? 'Saving...' : 'Save to Firestore'}</span>
+                    <span>{saving ? 'Saving...' : 'Save profile'}</span>
                   )}
                 </button>
               </div>

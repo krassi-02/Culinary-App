@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChefHat, Plus, Terminal, User as UserIcon } from 'lucide-react';
-import { User as FirebaseUser } from 'firebase/auth';
+import { User } from '@supabase/supabase-js';
 
 export type ActiveTab = 'recipes' | 'ingest' | 'fridge' | 'grocery' | 'mcp';
 
@@ -9,7 +9,7 @@ interface NavbarProps {
   onSelectTab: (tab: ActiveTab) => void;
   onOpenNewRecipe: () => void;
   onOpenProfile: () => void;
-  currentUser: FirebaseUser | null;
+  currentUser: User | null;
   profileName?: string;
   recipeCount: number;
   groceryCount: number;
@@ -112,19 +112,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-800 transition-colors shadow-2xs whitespace-nowrap"
             title="User Profile & Macro Database"
           >
-            {currentUser?.photoURL ? (
-              <img
-                src={currentUser.photoURL}
-                alt={currentUser.displayName || 'User'}
-                className="w-5 h-5 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px]">
-                {currentUser ? (currentUser.email?.charAt(0).toUpperCase() || 'U') : <UserIcon className="w-3 h-3" />}
-              </div>
-            )}
+            <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-[10px]">
+              {currentUser ? (currentUser.email?.charAt(0).toUpperCase() || 'U') : <UserIcon className="w-3 h-3" />}
+            </div>
             <span className="hidden sm:inline">
-              {profileName || currentUser?.displayName || 'User Profile'}
+              {profileName || 'User Profile'}
             </span>
           </button>
 
